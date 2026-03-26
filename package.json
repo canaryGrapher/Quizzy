@@ -1,20 +1,38 @@
 {
-  "name": "cryptocup",
-  "version": "1.1.0",
-  "description": "Round 2 of cryptocup",
+  "name": "quizzy",
+  "version": "3.0.0",
+  "description": "Quizzy — Live MCQ Quiz Platform",
   "main": "server.js",
   "scripts": {
-    "test": "npm server",
-    "start": "nodemon server"
+    "dev": "node server.js",
+    "build": "next build",
+    "start": "NODE_ENV=production node server.js",
+    "db:push": "prisma db push",
+    "db:seed": "node prisma/seed.js",
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
-    "express": "^4.14.0",
-    "formidable": "^1.2.1",
-    "jsonfile": "^5.0.0",
-    "mysql": "^2.13.0",
-    "nodemon": "^1.19.3"
+    "@prisma/client": "^5.14.0",
+    "csv-parse": "^5.5.3",
+    "iron-session": "^8.0.1",
+    "next": "^14.2.3",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "socket.io": "^4.7.5",
+    "socket.io-client": "^4.7.5"
   },
-  "author": "Yash Aryan",
-  "license": "MIT",
-  "devDependencies": {}
+  "devDependencies": {
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "prisma": "^5.14.0",
+    "tailwindcss": "^3.4.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma"
+    ]
+  }
 }

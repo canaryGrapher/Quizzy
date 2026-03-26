@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quizzy — Question</title>
+  <link rel="stylesheet" href="/styles/main.css">
+  <style>
+    .page { max-width: 760px; margin: 0 auto; padding: 28px 20px; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 13.5px; font-weight: 500; margin-bottom: 24px; transition: var(--t); }
+    .back-link:hover { color: var(--cyan); }
+    .q-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+    .q-title { font-size: 22px; font-weight: 800; margin-bottom: 20px; line-height: 1.3; }
+    .q-content-block { background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 24px; }
+    .options-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+    .option-letter { font-size: 11px; font-weight: 700; font-family: var(--mono); color: var(--text-3); min-width: 18px; margin-top: 2px; }
+    .submit-area { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .result-section { margin-top: 24px; display: flex; flex-direction: column; gap: 16px; }
+    .score-reveal { font-family: var(--mono); font-size: 18px; font-weight: 800; }
+    .hint-text { font-size: 13px; color: var(--text-2); font-style: italic; }
+    .countdown-small { font-family: var(--mono); font-size: 13px; color: var(--cyan); }
+    .loading-state { text-align: center; padding: 80px 20px; }
+    .error-state { text-align: center; padding: 80px 20px; color: var(--text-2); }
+    .error-state h3 { color: var(--red); margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <span class="header-logo">Quizzy</span>
+    <div class="header-info">
+      <span id="teamLabel" class="text-sm text-muted"></span>
+      <div class="countdown" id="countdown">--:--:--</div>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Sign Out</button>
+    </div>
+  </header>
+
+  <div class="page">
+    <a href="/contestant" class="back-link">&#8592; Back to Questions</a>
+    <div id="pageContent">
+      <div class="loading-state">
+        <div class="spinner" style="width:32px;height:32px;margin:0 auto 16px"></div>
+        <p class="text-muted">Loading question...</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    var questionData = null;
+    var selectedOptions = [];
+    var contestEndTime = null;
+    var countdownInterval = null;
+
+    marked.setOptions({ breaks: true, gfm: true });
+
+    async function init() {
+      try {
+        var me = await fetch('/api/me').then(function(r) { return r.json(); });
+        if (me.type !== 'team') { location.href = '/'; return; }
+        document.getElementById('teamLabel').textContent = me.teamName;
+      } catch(e) { location.href = '/'; return; }
+
+      try {
+        var cfg = await fetch('/api/config').then(function(r) { return r.json(); });
+        contestEndTime = cfg.contestEndTime ? new Date(cfg.contestEndTime) : null;
+      } catch(e) {}
+
+      updateCountdown();
+      countdownInterval = setInterval(updateCountdown, 1000);
+
+      var params = new URLSearchParams(location.search);
+      var id = params.get('id');
+      if (!id) { showError('No question ID specified.'); return; }
+      loadQuestion(id);
+    }
+
+    async function loadQuestion(id) {
+      try {
+        var res = await fetch('/api/questions/' + id);
+        if (!res.ok) {
+          var err = await res.json();
+          showError(err.error || 'Question not found.');
+          return;
+        }
+        questionData = await res.json();
+        renderQuestion();
+      } catch(e) {
+        showError('Failed to load question. Please try again.');
+      }
+    }
+
+    function renderQuestion() {
+      var q = questionData;
+      var isSubmitted = q.submitted;
+
+      // Restore selected options if already submitted
+      if (isSubmitted && q.selectedOptions) {
+        selectedOptions = q.selectedOptions.slice();
+      } else {
+        selectedOptions = [];
+      }
+
+      var multiTag = q.isMultiAnswer
+        ? '<span class="badge badge-purple">Multi-select</span>'
+        : '<span class="badge badge-cyan">Single answer</span>';
+
+      var optionsHtml = q.options.map(function(opt, i) {
+        var letter = String.fromCharCode(65 + i);
+        var cls = 'option-item';
+        if (q.isMultiAnswer) cls += ' is-checkbox';
+
+        if (isSubmitted) {
+          cls += ' disabled';
+          var isSelected = q.selectedOptions && q.selectedOptions.includes(opt.id);
+          var isCorrectOpt = q.correctOptions && q.correctOptions.includes(opt.id);
+          if (isCorrectOpt) cls += ' correct';
+          else if (isSelected && !isCorrectOpt) cls += ' wrong';
+        }
+
+        var checkIcon = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polyline points="1.5,5.5 4,8 8.5,2" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+        return '<div class="' + cls + '" data-id="' + opt.id + '" onclick="' + (isSubmitted ? '' : 'toggleOption(this,' + opt.id + ')') + '">' +
+          '<div class="option-dot">' + checkIcon + '</div>' +
+          '<span class="option-letter">' + letter + '</span>' +
+          '<div class="option-content md">' + marked.parse(opt.content) + '</div>' +
+        '</div>';
+      }).join('');
+
+      var resultHtml = '';
+      if (isSubmitted) {
+        if (q.isCorrect) {
+          resultHtml = '<div class="result-banner correct">&#10003; Correct! +' + q.score + ' points</div>';
+        } else {
+          resultHtml = '<div class="result-banner wrong">&#10007; Incorrect &mdash; 0 points. The correct answer' + (q.correctOptions && q.correctOptions.length > 1 ? 's are' : ' is') + ' highlighted in green.</div>';
+        }
+      }
+
+      var submitAreaHtml = isSubmitted
+        ? ''
+        : '<div class="submit-area">' +
+            '<button class="btn btn-primary btn-lg" id="submitBtn" onclick="submitAnswer()" disabled>' +
+              'Submit Answer' +
+            '</button>' +
+            (q.isMultiAnswer ? '<span class="hint-text">Select all that apply, then submit.</span>' : '<span class="hint-text">Select one option to submit.</span>') +
+          '</div>';
+
+      document.getElementById('pageContent').innerHTML =
+        '<div class="q-meta">' +
+          multiTag +
+          (isSubmitted ? '<span class="badge ' + (q.isCorrect ? 'badge-green' : 'badge-red') + '">' + (q.isCorrect ? 'Answered Correctly' : 'Answered Incorrectly') + '</span>' : '') +
+        '</div>' +
+        '<h1 class="q-title">' + escHtml(q.title) + '</h1>' +
+        '<div class="q-content-block md">' + marked.parse(q.content) + '</div>' +
+        '<div class="options-list" id="optionsList">' + optionsHtml + '</div>' +
+        (resultHtml ? '<div class="result-section">' + resultHtml + '</div>' : '') +
+        submitAreaHtml;
+    }
+
+    function toggleOption(el, optId) {
+      var q = questionData;
+      if (!q || q.submitted) return;
+
+      if (q.isMultiAnswer) {
+        var idx = selectedOptions.indexOf(optId);
+        if (idx === -1) {
+          selectedOptions.push(optId);
+          el.classList.add('selected');
+          el.querySelector('.option-dot').style.borderColor = 'var(--cyan)';
+          el.querySelector('.option-dot').style.background = 'var(--cyan)';
+        } else {
+          selectedOptions.splice(idx, 1);
+          el.classList.remove('selected');
+          el.querySelector('.option-dot').style.borderColor = '';
+          el.querySelector('.option-dot').style.background = '';
+        }
+      } else {
+        // Radio: deselect all, select this one
+        selectedOptions = [optId];
+        var allOptions = document.querySelectorAll('.option-item');
+        allOptions.forEach(function(item) {
+          item.classList.remove('selected');
+          item.querySelector('.option-dot').style.borderColor = '';
+          item.querySelector('.option-dot').style.background = '';
+        });
+        el.classList.add('selected');
+        el.querySelector('.option-dot').style.borderColor = 'var(--cyan)';
+        el.querySelector('.option-dot').style.background = 'var(--cyan)';
+      }
+
+      var submitBtn = document.getElementById('submitBtn');
+      if (submitBtn) submitBtn.disabled = selectedOptions.length === 0;
+    }
+
+    async function submitAnswer() {
+      if (!questionData || !selectedOptions.length) return;
+      var submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Submitting...';
+
+      try {
+        var res = await fetch('/api/questions/' + questionData.id + '/answer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selectedOptions: selectedOptions })
+        });
+        var data = await res.json();
+        if (!res.ok) {
+          showToast(data.error || 'Failed to submit', 'error');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Submit Answer';
+          return;
+        }
+
+        // Reload the question to show results
+        questionData.submitted = true;
+        questionData.isCorrect = data.isCorrect;
+        questionData.correctOptions = data.correctOptions;
+        questionData.selectedOptions = selectedOptions.slice();
+        questionData.score = data.score;
+        renderQuestion();
+        showToast(data.isCorrect ? 'Correct! +' + data.score + ' pts' : 'Incorrect. Better luck next time!', data.isCorrect ? 'success' : 'error');
+      } catch(e) {
+        showToast('Network error. Please try again.', 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit Answer';
+      }
+    }
+
+    function showError(msg) {
+      document.getElementById('pageContent').innerHTML =
+        '<div class="error-state"><h3>Error</h3><p>' + escHtml(msg) + '</p>' +
+        '<a href="/contestant" class="btn btn-secondary mt-4">Back to Questions</a></div>';
+    }
+
+    function updateCountdown() {
+      var el = document.getElementById('countdown');
+      if (!contestEndTime) { el.textContent = '--:--:--'; return; }
+      var now = new Date();
+      var diff = contestEndTime - now;
+      if (diff <= 0) {
+        el.textContent = 'ENDED';
+        el.classList.add('expired');
+        if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+        return;
+      }
+      var h = Math.floor(diff / 3600000);
+      var m = Math.floor((diff % 3600000) / 60000);
+      var s = Math.floor((diff % 60000) / 1000);
+      el.textContent = pad(h) + ':' + pad(m) + ':' + pad(s);
+    }
+
+    async function logout() {
+      await fetch('/api/logout', { method: 'POST' });
+      location.href = '/';
+    }
+
+    function showToast(msg, type) {
+      type = type || 'info';
+      var c = document.getElementById('toast-container');
+      var t = document.createElement('div');
+      t.className = 'toast toast-' + type;
+      t.textContent = msg;
+      c.appendChild(t);
+      setTimeout(function() {
+        t.style.animation = 'toastOut 0.3s ease forwards';
+        setTimeout(function() { t.remove(); }, 300);
+      }, 3500);
+    }
+
+    function pad(n) { return String(n).padStart(2, '0'); }
+    function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    init();
+  </script>
+</body>
+</html>

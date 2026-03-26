@@ -1,67 +1,81 @@
-var express = require("express");
-var app = express();
-const jsonfile = require("jsonfile");
-var formidable = require("formidable");
-const path = require("path");
+const { createServer } = require('http');
+const { parse } = require('url');
+const next = require('next');
+const { Server } = require('socket.io');
 
-var PORT = process.env.PORT || 3000;
+const dev = process.env.NODE_ENV !== 'production';
+const hostname = process.env.HOSTNAME || 'localhost';
+const port = parseInt(process.env.PORT || '3000', 10);
 
-app.use("/", express.static(path.join(__dirname, "public")));
-app.use(express.static(__dirname + "/public"));
-app.use(
-  express.urlencoded({
-    extended: true
-  })
-);
+// Global live state
+global._liveState = {
+  activeQuizId: null,
+  activeQuizTitle: null,
+  timeLimitSeconds: null,
+  currentQuestion: null,
+  showResults: false,
+  resultStats: null,
+  fastestAnswers: [],
+  allTeams: [],       // [{ id, name }] non-banned active teams
+  submittedTeamIds: [], // teamIds that answered current question
+};
 
-app.get("/", function(req, res) {
-  res.sendFile(__dirname + "/public/login.html");
-});
+// Map teamId → Set of socket IDs (for targeted messages)
+global._teamSockets = {};
+// Map questionId → setTimeout handle (for auto-submit timers)
+global._questionTimers = {};
 
-app.post("/secureLogin", function(req, res) {
-  let data = req.body;
-  const file = `${data.teamname}.json`;
-  const ipAdd =
-    req.connection.remoteAddress ||
-    req.socket.remoteAddress ||
-    (req.connection.socket ? req.connection.socket.remoteAddress : null);
-  jsonfile.readFile(file, function(err, obj) {
-    if (err) {
-      console.log("User Not found");
-      res.sendFile(__dirname + "/public/loginError.html");
-    } else {
-      console.log(obj.password + " " + data.password);
-      if (data.password === obj.password) {
-        console.log(
-          `"${data.teamname}" logged in successfully with password "${data.password}" and locator "${ipAdd}"`
-        );
-        res.setHeader("teamName", `${data.teamname}`);
-        res.sendFile(__dirname + "/public/homepageQuestions.html");
-      } else {
-        res.sendFile(__dirname + "/public/loginError.html");
-      }
+const app = next({ dev, hostname, port });
+const handle = app.getRequestHandler();
+
+app.prepare().then(() => {
+  const httpServer = createServer(async (req, res) => {
+    try {
+      const parsedUrl = parse(req.url, true);
+      await handle(req, res, parsedUrl);
+    } catch (err) {
+      console.error('Error handling', req.url, err);
+      res.statusCode = 500;
+      res.end('Internal server error');
     }
   });
-});
 
-app.post("/fileupload", function(req, res) {
-  var form = new formidable.IncomingForm();
-  const ipAdd =
-    req.connection.remoteAddress ||
-    req.socket.remoteAddress ||
-    (req.connection.socket ? req.connection.socket.remoteAddress : null);
-  form.parse(req);
-
-  form.on("fileBegin", function(name, file) {
-    file.path = __dirname + "/fileUploads/" + file.name;
+  const io = new Server(httpServer, {
+    cors: { origin: '*', methods: ['GET', 'POST'] },
+    path: '/socket.io',
+    transports: ['websocket', 'polling'],
   });
 
-  form.on("file", function(name, file) {
-    console.log("Uploaded " + file.name + " by user at " + ipAdd);
-  });
-  return res.sendFile(__dirname + "/public/uploadSuccessful.html");
-});
+  global._io = io;
 
-app.listen(PORT, () =>
-  console.log(`Server running at http://localhost:${PORT}`)
-);
+  io.on('connection', (socket) => {
+    // Send current live state to new connection
+    socket.emit('state:sync', global._liveState);
+
+    // Team clients identify themselves so we can route messages
+    socket.on('team:join', ({ teamId, teamName }) => {
+      if (!teamId) return;
+      socket.teamId = teamId;
+      socket.teamName = teamName;
+      socket.join(`team-${teamId}`);
+
+      if (!global._teamSockets[teamId]) global._teamSockets[teamId] = new Set();
+      global._teamSockets[teamId].add(socket.id);
+    });
+
+    socket.on('disconnect', () => {
+      if (socket.teamId && global._teamSockets[socket.teamId]) {
+        global._teamSockets[socket.teamId].delete(socket.id);
+        if (global._teamSockets[socket.teamId].size === 0) {
+          delete global._teamSockets[socket.teamId];
+        }
+      }
+    });
+  });
+
+  httpServer
+    .once('error', (err) => { console.error(err); process.exit(1); })
+    .listen(port, () => {
+      console.log(`> Ready on http://${hostname}:${port}`);
+    });
+});

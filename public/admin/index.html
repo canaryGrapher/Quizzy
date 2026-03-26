@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quizzy — Admin</title>
+  <link rel="stylesheet" href="/styles/main.css">
+  <style>
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Scores */
+    .leaderboard-wrap { background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .rank-medal { font-size: 16px; }
+    .score-bar-cell { min-width: 120px; }
+    .team-score-val { font-family: var(--mono); font-weight: 700; font-size: 15px; }
+
+    /* Question grid table */
+    .breakdown-wrap { margin-top: 28px; }
+    .breakdown-title { font-size: 16px; font-weight: 700; margin-bottom: 14px; }
+    .breakdown-scroll { overflow-x: auto; }
+    .breakdown-table { border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+    .breakdown-table th, .breakdown-table td { padding: 8px 12px; border: 1px solid var(--border); text-align: center; }
+    .breakdown-table th { background: var(--bg-4); color: var(--text-3); font-weight: 700; text-transform: uppercase; font-size: 10.5px; }
+    .breakdown-table td.team-name-cell { text-align: left; font-weight: 600; background: var(--bg-3); position: sticky; left: 0; }
+    .cell-correct { background: rgba(16,185,129,0.15); color: var(--green); font-weight: 700; }
+    .cell-wrong { background: rgba(239,68,68,0.1); color: var(--red); }
+    .cell-unanswered { color: var(--text-3); }
+
+    /* Questions tab */
+    .questions-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+    .accordion-wrap { display: flex; flex-direction: column; gap: 8px; }
+    .acc-header-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+    .acc-title { font-size: 14px; font-weight: 600; truncate: true; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .acc-header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .release-toggle-wrap { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
+    .acc-stats { display: flex; gap: 6px; flex-wrap: wrap; }
+    .acc-body-content { display: flex; flex-direction: column; gap: 14px; }
+    .acc-question-text { font-size: 13.5px; color: var(--text-2); line-height: 1.6; }
+    .acc-options-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+    .acc-option { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; padding: 7px 10px; border-radius: var(--radius-xs); background: var(--bg-5); }
+    .acc-option.is-correct { background: rgba(16,185,129,0.1); color: var(--green); }
+    .acc-option-mark { font-size: 10px; font-weight: 700; min-width: 14px; margin-top: 2px; }
+    .acc-actions { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--border); }
+
+    /* Add question modal options */
+    .option-builder { display: flex; flex-direction: column; gap: 8px; }
+    .option-row { display: flex; align-items: center; gap: 8px; }
+    .option-row input[type="text"] { flex: 1; }
+    .option-correct-check { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
+    .option-correct-check input { accent-color: var(--green); }
+    .add-option-btn { background: none; border: 1px dashed var(--border-light); color: var(--text-2); border-radius: var(--radius-xs); padding: 7px 14px; cursor: pointer; font-size: 12.5px; transition: var(--t); }
+    .add-option-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+    .remove-option-btn { background: none; border: none; color: var(--text-3); cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 4px; transition: var(--t); flex-shrink: 0; }
+    .remove-option-btn:hover { color: var(--red); }
+
+    /* Teams tab */
+    .teams-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+
+    /* Settings tab */
+    .settings-form { max-width: 500px; display: flex; flex-direction: column; gap: 18px; }
+    .settings-save-row { padding-top: 8px; }
+
+    /* CSV format block */
+    .csv-format { background: var(--bg-0); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); overflow-x: auto; white-space: pre; line-height: 1.6; margin-top: 8px; }
+
+    /* Answer detail modal */
+    .answer-detail-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+    .answer-detail-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--bg-4); border-radius: var(--radius-xs); gap: 12px; font-size: 13px; }
+    .answer-detail-team { font-weight: 600; }
+    .answer-detail-time { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
+
+    /* Auto-refresh indicator */
+    .refresh-indicator { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); }
+    .refresh-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <span class="header-logo">Quizzy</span>
+    <div class="header-info">
+      <span class="badge badge-purple">Admin Portal</span>
+      <button class="btn btn-ghost btn-sm" onclick="logout()">Sign Out</button>
+    </div>
+  </header>
+
+  <div class="admin-layout">
+    <nav class="admin-sidebar">
+      <button class="sidebar-item active" onclick="switchTab('scores', this)">
+        <span class="sidebar-icon">&#128202;</span> Live Scores
+      </button>
+      <button class="sidebar-item" onclick="switchTab('questions', this)">
+        <span class="sidebar-icon">&#10067;</span> Questions
+      </button>
+      <button class="sidebar-item" onclick="switchTab('teams', this)">
+        <span class="sidebar-icon">&#128101;</span> Teams
+      </button>
+      <button class="sidebar-item" onclick="switchTab('settings', this)">
+        <span class="sidebar-icon">&#9881;</span> Settings
+      </button>
+    </nav>
+
+    <main class="admin-main">
+
+      <!-- ── SCORES TAB ── -->
+      <div id="tab-scores" class="tab-content active">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <div class="section-title">Live Scoreboard</div>
+            <div class="section-sub">Auto-refreshes every 5 seconds</div>
+          </div>
+          <div class="refresh-indicator">
+            <div class="refresh-dot"></div>
+            <span>Live</span>
+          </div>
+        </div>
+        <div class="leaderboard-wrap">
+          <table class="table" id="scoresTable">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Team</th>
+                <th>Score</th>
+                <th>Correct</th>
+                <th>Attempted</th>
+                <th>Progress</th>
+              </tr>
+            </thead>
+            <tbody id="scoresTbody">
+              <tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-3)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="breakdown-wrap" id="breakdownWrap"></div>
+      </div>
+
+      <!-- ── QUESTIONS TAB ── -->
+      <div id="tab-questions" class="tab-content">
+        <div class="section-title">Questions</div>
+        <div class="section-sub">Manage contest questions, release them to contestants, and view answer stats.</div>
+        <div class="questions-toolbar">
+          <button class="btn btn-primary" onclick="openAddQuestionModal()">+ Add Question</button>
+          <button class="btn btn-secondary" onclick="openUploadModal()">&#8679; Upload CSV</button>
+          <button class="btn btn-ghost" onclick="loadQuestions()">&#8635; Refresh</button>
+        </div>
+        <div class="accordion-wrap" id="questionsList">
+          <div style="text-align:center;padding:40px;color:var(--text-3)">Loading...</div>
+        </div>
+      </div>
+
+      <!-- ── TEAMS TAB ── -->
+      <div id="tab-teams" class="tab-content">
+        <div class="section-title">Teams</div>
+        <div class="section-sub">Manage registered teams and their credentials.</div>
+        <div class="teams-toolbar">
+          <button class="btn btn-primary" onclick="openCreateTeamModal()">+ Create Team</button>
+          <button class="btn btn-ghost" onclick="loadTeams()">&#8635; Refresh</button>
+        </div>
+        <div class="leaderboard-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Team Name</th>
+                <th>Created</th>
+                <th>Score</th>
+                <th>Correct / Attempted</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="teamsTbody">
+              <tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-3)">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── SETTINGS TAB ── -->
+      <div id="tab-settings" class="tab-content">
+        <div class="section-title">Settings</div>
+        <div class="section-sub">Configure contest parameters and admin credentials.</div>
+        <div class="settings-form" id="settingsForm">
+          <div style="text-align:center;padding:40px;color:var(--text-3)">Loading...</div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ── ADD QUESTION MODAL ── -->
+  <div class="modal-overlay" id="addQuestionModal">
+    <div class="modal" style="max-width:640px">
+      <div class="modal-header">
+        <span class="modal-title">Add Question</span>
+        <button class="modal-close" onclick="closeModal('addQuestionModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Title <span style="color:var(--text-3);font-weight:400;text-transform:none">(short label, shown in question list)</span></label>
+          <input type="text" class="form-input" id="aqTitle" placeholder="e.g. What is Bitcoin?">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Question Content <span style="color:var(--text-3);font-weight:400;text-transform:none">(supports Markdown)</span></label>
+          <textarea class="form-input" id="aqContent" rows="5" placeholder="Write the full question here. **Markdown** is supported."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <label class="toggle" style="margin:0">
+              <input type="checkbox" id="aqMultiAnswer">
+              <span class="toggle-track"></span>
+            </label>
+            Multi-select (multiple correct answers)
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Options <span style="color:var(--text-3);font-weight:400;text-transform:none">(check the box next to correct answer(s))</span></label>
+          <div class="option-builder" id="optionBuilder"></div>
+          <button class="add-option-btn mt-2" onclick="addOptionRow()">+ Add Option</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('addQuestionModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitAddQuestion()">Create Question</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── UPLOAD CSV MODAL ── -->
+  <div class="modal-overlay" id="uploadModal">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">Upload Questions via CSV</span>
+        <button class="modal-close" onclick="closeModal('uploadModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">CSV File</label>
+          <input type="file" class="form-input" id="csvFile" accept=".csv">
+        </div>
+        <div>
+          <div class="form-label mb-2">Expected Format</div>
+          <div class="csv-format">Question,isMultiAnswer,Option1,Option2,Option3,Option4,CorrectAnswers
+"What is **Bitcoin**?",false,"A cryptocurrency","A stock","A bond","Gold","1"
+"Which are blockchains?",true,"Bitcoin","Ethereum","Dogecoin","S&P500","1,2"</div>
+          <p class="text-sm text-muted mt-2">CorrectAnswers is a comma-separated list of 1-based option indices. isMultiAnswer: true/false/1/0/yes.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('uploadModal')">Cancel</button>
+        <button class="btn btn-primary" id="uploadBtn" onclick="submitCsvUpload()">Upload</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CREATE TEAM MODAL ── -->
+  <div class="modal-overlay" id="createTeamModal">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <span class="modal-title">Create Team</span>
+        <button class="modal-close" onclick="closeModal('createTeamModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Team Name</label>
+          <input type="text" class="form-input" id="ctName" placeholder="e.g. TeamAlpha">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="text" class="form-input" id="ctPassword" placeholder="e.g. pass123">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('createTeamModal')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitCreateTeam()">Create Team</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ANSWER DETAIL MODAL ── -->
+  <div class="modal-overlay" id="answerDetailModal">
+    <div class="modal" style="max-width:620px">
+      <div class="modal-header">
+        <span class="modal-title" id="answerDetailTitle">Answer Details</span>
+        <button class="modal-close" onclick="closeModal('answerDetailModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="answerDetailContent">Loading...</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal('answerDetailModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    marked.setOptions({ breaks: true, gfm: true });
+
+    var allScores = [];
+    var allQuestions = [];
+    var allTeams = [];
+    var scoresInterval = null;
+
+    // ── Auth check ──────────────────────────────────────────────────────────
+    async function init() {
+      try {
+        var me = await fetch('/api/me').then(function(r) { return r.json(); });
+        if (me.type !== 'admin') { location.href = '/'; return; }
+      } catch(e) { location.href = '/'; return; }
+
+      switchTab('scores', document.querySelector('.sidebar-item.active'));
+    }
+
+    // ── Tab routing ──────────────────────────────────────────────────────────
+    function switchTab(name, btn) {
+      document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); });
+      document.querySelectorAll('.sidebar-item').forEach(function(el) { el.classList.remove('active'); });
+      document.getElementById('tab-' + name).classList.add('active');
+      if (btn) btn.classList.add('active');
+
+      if (scoresInterval) { clearInterval(scoresInterval); scoresInterval = null; }
+
+      if (name === 'scores') {
+        loadScores();
+        scoresInterval = setInterval(loadScores, 5000);
+      } else if (name === 'questions') {
+        loadQuestions();
+      } else if (name === 'teams') {
+        loadTeams();
+      } else if (name === 'settings') {
+        loadSettings();
+      }
+    }
+
+    // ── SCORES ──────────────────────────────────────────────────────────────
+    async function loadScores() {
+      try {
+        var scores = await fetch('/api/admin/scores').then(function(r) { return r.json(); });
+        allScores = scores;
+        renderScores(scores);
+      } catch(e) {}
+    }
+
+    function renderScores(scores) {
+      var tbody = document.getElementById('scoresTbody');
+      var totalQ = allQuestions.length || 0;
+
+      if (!scores.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-3)">No teams yet.</td></tr>';
+        return;
+      }
+
+      var maxScore = scores.length ? scores[0].total_score : 1;
+      tbody.innerHTML = scores.map(function(t, i) {
+        var rank = i + 1;
+        var rankDisplay;
+        if (rank === 1) rankDisplay = '<span class="rank-medal">&#127941;</span>';
+        else if (rank === 2) rankDisplay = '<span class="rank-medal">&#129352;</span>';
+        else if (rank === 3) rankDisplay = '<span class="rank-medal">&#129353;</span>';
+        else rankDisplay = '<span class="rank-' + (rank <= 3 ? rank : 'other') + '">' + rank + '</span>';
+
+        var pct = maxScore > 0 ? Math.round((t.total_score / maxScore) * 100) : 0;
+        return '<tr>' +
+          '<td>' + rankDisplay + '</td>' +
+          '<td><span class="font-bold">' + escHtml(t.name) + '</span></td>' +
+          '<td><span class="team-score-val text-cyan">' + t.total_score + ' pts</span></td>' +
+          '<td><span class="text-green font-bold">' + t.correct_count + '</span></td>' +
+          '<td>' + t.attempted_count + '</td>' +
+          '<td class="score-bar-cell">' +
+            '<div class="progress-bar" style="width:120px">' +
+              '<div class="progress-fill" style="width:' + pct + '%"></div>' +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+
+      renderBreakdown(scores);
+    }
+
+    async function renderBreakdown(scores) {
+      var wrap = document.getElementById('breakdownWrap');
+      if (!scores.length) { wrap.innerHTML = ''; return; }
+
+      try {
+        var questions = await fetch('/api/admin/questions').then(function(r) { return r.json(); });
+        var released = questions.filter(function(q) { return q.is_released; });
+        if (!released.length) { wrap.innerHTML = ''; return; }
+
+        // Build a map: teamId -> { questionId -> answer detail }
+        // We need per-team per-question data. Use scores for teams, fetch answers per question.
+        // For the breakdown we'll request answers for each released question.
+        // To avoid N calls, use a simple approach: show based on existing stats (attempted/correct per question).
+
+        var teamNames = scores.map(function(s) { return s.name; });
+
+        // Fetch answer details for all released questions
+        var allDetails = {};
+        await Promise.all(released.map(async function(q) {
+          try {
+            var d = await fetch('/api/admin/questions/' + q.id + '/answers').then(function(r) { return r.json(); });
+            allDetails[q.id] = {};
+            d.answers.forEach(function(a) {
+              allDetails[q.id][a.team_name] = a.is_correct;
+            });
+          } catch(e) {}
+        }));
+
+        var headerCells = released.map(function(q, i) {
+          return '<th title="' + escHtml(q.title) + '">Q' + (i + 1) + '</th>';
+        }).join('');
+
+        var rows = scores.map(function(team) {
+          var cells = released.map(function(q) {
+            var detail = allDetails[q.id] && allDetails[q.id][team.name];
+            if (detail === undefined) return '<td class="cell-unanswered">&ndash;</td>';
+            if (detail) return '<td class="cell-correct">&#10003;</td>';
+            return '<td class="cell-wrong">&#10007;</td>';
+          }).join('');
+          return '<tr><td class="team-name-cell">' + escHtml(team.name) + '</td>' + cells + '</tr>';
+        }).join('');
+
+        wrap.innerHTML =
+          '<div class="breakdown-wrap">' +
+            '<div class="breakdown-title">Per-Question Breakdown</div>' +
+            '<div class="breakdown-scroll">' +
+              '<table class="breakdown-table">' +
+                '<thead><tr><th style="text-align:left;position:sticky;left:0;background:var(--bg-4)">Team</th>' + headerCells + '</tr></thead>' +
+                '<tbody>' + rows + '</tbody>' +
+              '</table>' +
+            '</div>' +
+          '</div>';
+      } catch(e) {}
+    }
+
+    // ── QUESTIONS ────────────────────────────────────────────────────────────
+    async function loadQuestions() {
+      try {
+        var questions = await fetch('/api/admin/questions').then(function(r) { return r.json(); });
+        allQuestions = questions;
+        renderQuestions(questions);
+      } catch(e) { showToast('Failed to load questions', 'error'); }
+    }
+
+    function renderQuestions(questions) {
+      var list = document.getElementById('questionsList');
+      if (!questions.length) {
+        list.innerHTML = '<div class="empty-state"><div class="empty-icon">&#10067;</div><h3>No questions yet</h3><p>Add a question or upload a CSV to get started.</p></div>';
+        return;
+      }
+
+      list.innerHTML = questions.map(function(q, i) {
+        var releasedClass = q.is_released ? 'badge-green' : 'badge-gray';
+        var releasedLabel = q.is_released ? 'Released' : 'Hidden';
+        var multiTag = q.is_multi_answer ? '<span class="badge badge-purple">Multi</span>' : '';
+
+        var optionsHtml = q.options.map(function(opt, j) {
+          var letter = String.fromCharCode(65 + j);
+          var correctClass = opt.is_correct ? ' is-correct' : '';
+          var mark = opt.is_correct ? '&#10003;' : letter;
+          return '<div class="acc-option' + correctClass + '">' +
+            '<span class="acc-option-mark">' + mark + '</span>' +
+            '<span>' + escHtml(opt.content) + '</span>' +
+          '</div>';
+        }).join('');
+
+        return '<div class="accordion-item" id="acc-' + q.id + '">' +
+          '<div class="accordion-header" onclick="toggleAccordion(' + q.id + ', this)">' +
+            '<div class="acc-header-left">' +
+              '<span class="acc-title">' + (i + 1) + '. ' + escHtml(q.title) + '</span>' +
+              multiTag +
+            '</div>' +
+            '<div class="acc-header-right">' +
+              '<div class="acc-stats">' +
+                '<span class="badge badge-gray">' + q.stats.attempted + ' tried</span>' +
+                '<span class="badge badge-green">' + q.stats.correct + ' correct</span>' +
+              '</div>' +
+              '<span class="badge ' + releasedClass + '">' + releasedLabel + '</span>' +
+              '<svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>' +
+            '</div>' +
+          '</div>' +
+          '<div class="accordion-body" id="acc-body-' + q.id + '">' +
+            '<div class="acc-body-content">' +
+              '<div class="acc-question-text md">' + marked.parse(q.content) + '</div>' +
+              (q.options.length ? '<div><div class="form-label mb-2">Options</div><div class="acc-options-list">' + optionsHtml + '</div></div>' : '') +
+              '<div class="acc-actions">' +
+                '<div class="release-toggle-wrap">' +
+                  '<label class="toggle">' +
+                    '<input type="checkbox" ' + (q.is_released ? 'checked' : '') + ' onchange="toggleRelease(' + q.id + ', this)">' +
+                    '<span class="toggle-track"></span>' +
+                  '</label>' +
+                  '<span>' + (q.is_released ? 'Released to contestants' : 'Hidden from contestants') + '</span>' +
+                '</div>' +
+                '<button class="btn btn-secondary btn-sm" onclick="viewAnswers(' + q.id + ', ' + JSON.stringify(escHtml(q.title)).replace(/"/g, '&quot;') + ')">View Answers</button>' +
+                '<button class="btn btn-danger btn-sm" onclick="deleteQuestion(' + q.id + ')">Delete</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function toggleAccordion(id, headerEl) {
+      var body = document.getElementById('acc-body-' + id);
+      if (!body) return;
+      var isOpen = body.classList.contains('open');
+      body.classList.toggle('open', !isOpen);
+      headerEl.classList.toggle('open', !isOpen);
+    }
+
+    async function toggleRelease(qid, checkbox) {
+      var released = checkbox.checked;
+      try {
+        await fetch('/api/admin/questions/' + qid, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_released: released })
+        });
+        showToast(released ? 'Question released' : 'Question hidden', 'success');
+        loadQuestions();
+      } catch(e) {
+        showToast('Failed to update', 'error');
+        checkbox.checked = !released;
+      }
+    }
+
+    async function deleteQuestion(qid) {
+      if (!confirm('Delete this question and all its answers? This cannot be undone.')) return;
+      try {
+        await fetch('/api/admin/questions/' + qid, { method: 'DELETE' });
+        showToast('Question deleted', 'success');
+        loadQuestions();
+      } catch(e) { showToast('Failed to delete', 'error'); }
+    }
+
+    async function viewAnswers(qid, title) {
+      document.getElementById('answerDetailTitle').textContent = 'Answers: ' + title;
+      document.getElementById('answerDetailContent').innerHTML = '<div style="text-align:center;padding:20px"><div class="spinner"></div></div>';
+      openModal('answerDetailModal');
+
+      try {
+        var data = await fetch('/api/admin/questions/' + qid + '/answers').then(function(r) { return r.json(); });
+        var optionMap = {};
+        data.options.forEach(function(o) { optionMap[o.id] = o.content; });
+
+        if (!data.answers.length) {
+          document.getElementById('answerDetailContent').innerHTML = '<p class="text-muted text-center" style="padding:20px">No answers submitted yet.</p>';
+          return;
+        }
+
+        var html = '<div class="answer-detail-list">' +
+          data.answers.map(function(a) {
+            var selected = [];
+            try { selected = JSON.parse(a.selected_options); } catch(e) {}
+            var selectedLabels = selected.map(function(id) { return optionMap[id] || ('Option ' + id); }).join(', ');
+            var correctBadge = a.is_correct
+              ? '<span class="badge badge-green">Correct</span>'
+              : '<span class="badge badge-red">Incorrect</span>';
+            var time = new Date(a.submitted_at).toLocaleTimeString();
+            return '<div class="answer-detail-item">' +
+              '<span class="answer-detail-team">' + escHtml(a.team_name) + '</span>' +
+              '<span class="text-sm text-muted truncate" style="flex:1;max-width:200px">' + escHtml(selectedLabels) + '</span>' +
+              correctBadge +
+              '<span class="answer-detail-time">' + time + '</span>' +
+            '</div>';
+          }).join('') +
+        '</div>';
+
+        var correct = data.answers.filter(function(a) { return a.is_correct; }).length;
+        html = '<div class="flex gap-4 mb-4">' +
+          '<span class="badge badge-gray">' + data.answers.length + ' total</span>' +
+          '<span class="badge badge-green">' + correct + ' correct</span>' +
+          '<span class="badge badge-red">' + (data.answers.length - correct) + ' incorrect</span>' +
+        '</div>' + html;
+
+        document.getElementById('answerDetailContent').innerHTML = html;
+      } catch(e) {
+        document.getElementById('answerDetailContent').innerHTML = '<p class="text-red">Failed to load answer details.</p>';
+      }
+    }
+
+    // ── ADD QUESTION MODAL ───────────────────────────────────────────────────
+    function openAddQuestionModal() {
+      document.getElementById('aqTitle').value = '';
+      document.getElementById('aqContent').value = '';
+      document.getElementById('aqMultiAnswer').checked = false;
+      var builder = document.getElementById('optionBuilder');
+      builder.innerHTML = '';
+      addOptionRow();
+      addOptionRow();
+      addOptionRow();
+      addOptionRow();
+      openModal('addQuestionModal');
+    }
+
+    function addOptionRow() {
+      var builder = document.getElementById('optionBuilder');
+      var row = document.createElement('div');
+      row.className = 'option-row';
+      var idx = builder.children.length + 1;
+      row.innerHTML =
+        '<input type="text" class="form-input" placeholder="Option ' + idx + '" style="flex:1">' +
+        '<label class="option-correct-check">' +
+          '<input type="checkbox"> Correct' +
+        '</label>' +
+        '<button class="remove-option-btn" onclick="this.parentElement.remove()" title="Remove">&times;</button>';
+      builder.appendChild(row);
+    }
+
+    async function submitAddQuestion() {
+      var title = document.getElementById('aqTitle').value.trim();
+      var content = document.getElementById('aqContent').value.trim();
+      var isMultiAnswer = document.getElementById('aqMultiAnswer').checked;
+
+      if (!title || !content) { showToast('Title and content are required', 'error'); return; }
+
+      var options = [];
+      document.querySelectorAll('#optionBuilder .option-row').forEach(function(row) {
+        var text = row.querySelector('input[type="text"]').value.trim();
+        var isCorrect = row.querySelector('input[type="checkbox"]').checked;
+        if (text) options.push({ content: text, isCorrect: isCorrect });
+      });
+
+      if (options.length < 2) { showToast('Add at least 2 options', 'error'); return; }
+      if (!options.some(function(o) { return o.isCorrect; })) { showToast('Mark at least one correct answer', 'error'); return; }
+
+      try {
+        var res = await fetch('/api/admin/questions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: title, content: content, isMultiAnswer: isMultiAnswer, options: options })
+        });
+        if (!res.ok) { var e = await res.json(); showToast(e.error || 'Failed', 'error'); return; }
+        closeModal('addQuestionModal');
+        showToast('Question created', 'success');
+        loadQuestions();
+      } catch(e) { showToast('Network error', 'error'); }
+    }
+
+    // ── UPLOAD CSV ───────────────────────────────────────────────────────────
+    function openUploadModal() {
+      document.getElementById('csvFile').value = '';
+      openModal('uploadModal');
+    }
+
+    async function submitCsvUpload() {
+      var fileInput = document.getElementById('csvFile');
+      if (!fileInput.files.length) { showToast('Select a CSV file', 'error'); return; }
+      var btn = document.getElementById('uploadBtn');
+      btn.disabled = true;
+      btn.textContent = 'Uploading...';
+
+      var formData = new FormData();
+      formData.append('csv', fileInput.files[0]);
+
+      try {
+        var res = await fetch('/api/admin/questions/upload', { method: 'POST', body: formData });
+        var data = await res.json();
+        if (!res.ok) { showToast(data.error || 'Upload failed', 'error'); }
+        else {
+          closeModal('uploadModal');
+          showToast('Created ' + data.created + ' question(s)', 'success');
+          loadQuestions();
+        }
+      } catch(e) { showToast('Network error', 'error'); }
+      btn.disabled = false;
+      btn.textContent = 'Upload';
+    }
+
+    // ── TEAMS ────────────────────────────────────────────────────────────────
+    async function loadTeams() {
+      try {
+        var teams = await fetch('/api/admin/teams').then(function(r) { return r.json(); });
+        allTeams = teams;
+        renderTeams(teams);
+      } catch(e) { showToast('Failed to load teams', 'error'); }
+    }
+
+    function renderTeams(teams) {
+      var tbody = document.getElementById('teamsTbody');
+      if (!teams.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-3)">No teams yet. Create one to get started.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = teams.map(function(t) {
+        var date = new Date(t.created_at).toLocaleDateString();
+        return '<tr>' +
+          '<td><span class="font-bold">' + escHtml(t.name) + '</span></td>' +
+          '<td class="text-muted text-sm">' + date + '</td>' +
+          '<td><span class="font-mono text-cyan">' + t.total_score + ' pts</span></td>' +
+          '<td><span class="text-green">' + t.correct_count + '</span> / ' + t.attempted_count + '</td>' +
+          '<td><button class="btn btn-danger btn-xs" onclick="deleteTeam(' + t.id + ', \'' + escHtml(t.name).replace(/'/g, "\\'") + '\')">Delete</button></td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    function openCreateTeamModal() {
+      document.getElementById('ctName').value = '';
+      document.getElementById('ctPassword').value = '';
+      openModal('createTeamModal');
+    }
+
+    async function submitCreateTeam() {
+      var name = document.getElementById('ctName').value.trim();
+      var password = document.getElementById('ctPassword').value.trim();
+      if (!name || !password) { showToast('Name and password required', 'error'); return; }
+      try {
+        var res = await fetch('/api/admin/teams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name, password: password })
+        });
+        var data = await res.json();
+        if (!res.ok) { showToast(data.error || 'Failed', 'error'); return; }
+        closeModal('createTeamModal');
+        showToast('Team "' + name + '" created', 'success');
+        loadTeams();
+      } catch(e) { showToast('Network error', 'error'); }
+    }
+
+    async function deleteTeam(id, name) {
+      if (!confirm('Delete team "' + name + '" and all their answers?')) return;
+      try {
+        await fetch('/api/admin/teams/' + id, { method: 'DELETE' });
+        showToast('Team deleted', 'success');
+        loadTeams();
+      } catch(e) { showToast('Failed to delete team', 'error'); }
+    }
+
+    // ── SETTINGS ─────────────────────────────────────────────────────────────
+    async function loadSettings() {
+      try {
+        var s = await fetch('/api/admin/settings').then(function(r) { return r.json(); });
+        renderSettings(s);
+      } catch(e) { showToast('Failed to load settings', 'error'); }
+    }
+
+    function renderSettings(s) {
+      var form = document.getElementById('settingsForm');
+      form.innerHTML =
+        '<div class="form-group">' +
+          '<label class="form-label">Admin Password</label>' +
+          '<input type="text" class="form-input" id="sAdminPassword" value="' + escHtml(s.adminPassword || '') + '">' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label">Contest End Time</label>' +
+          '<input type="datetime-local" class="form-input" id="sContestEnd" value="' + (s.contestEndTime ? s.contestEndTime.slice(0,16) : '') + '">' +
+        '</div>' +
+        '<div class="form-group">' +
+          '<label class="form-label">Points per Correct Answer</label>' +
+          '<input type="number" class="form-input" id="sPoints" value="' + escHtml(s.pointsPerQuestion || '10') + '" min="1" max="1000">' +
+        '</div>' +
+        '<div class="settings-save-row">' +
+          '<button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>' +
+        '</div>';
+    }
+
+    async function saveSettings() {
+      var adminPassword = document.getElementById('sAdminPassword').value.trim();
+      var contestEndTime = document.getElementById('sContestEnd').value;
+      var pointsPerQuestion = document.getElementById('sPoints').value;
+
+      try {
+        var res = await fetch('/api/admin/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adminPassword: adminPassword || undefined,
+            contestEndTime: contestEndTime || undefined,
+            pointsPerQuestion: pointsPerQuestion ? parseInt(pointsPerQuestion) : undefined
+          })
+        });
+        if (!res.ok) { showToast('Failed to save', 'error'); return; }
+        showToast('Settings saved', 'success');
+      } catch(e) { showToast('Network error', 'error'); }
+    }
+
+    // ── Modal helpers ────────────────────────────────────────────────────────
+    function openModal(id) {
+      document.getElementById(id).classList.add('open');
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('open');
+    }
+    // Close on overlay click
+    document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) overlay.classList.remove('open');
+      });
+    });
+
+    // ── Toast ────────────────────────────────────────────────────────────────
+    function showToast(msg, type) {
+      type = type || 'info';
+      var c = document.getElementById('toast-container');
+      var t = document.createElement('div');
+      t.className = 'toast toast-' + type;
+      t.textContent = msg;
+      c.appendChild(t);
+      setTimeout(function() {
+        t.style.animation = 'toastOut 0.3s ease forwards';
+        setTimeout(function() { t.remove(); }, 300);
+      }, 3000);
+    }
+
+    // ── Logout ───────────────────────────────────────────────────────────────
+    async function logout() {
+      await fetch('/api/logout', { method: 'POST' });
+      location.href = '/';
+    }
+
+    function escHtml(s) {
+      if (typeof s !== 'string') s = String(s);
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    init();
+  </script>
+</body>
+</html>

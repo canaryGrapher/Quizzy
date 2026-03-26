@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Quiz {
+  id                Int        @id @default(autoincrement())
+  title             String
+  description       String?
+  isActive          Boolean    @default(false) @map("is_active")
+  pointsPerQuestion Int        @default(10) @map("points_per_question")
+  timeLimitSeconds  Int?       @map("time_limit_seconds")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  questions         Question[]
+
+  @@map("quizzy")
+}
+
+model Team {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  password  String
+  isBanned  Boolean  @default(false) @map("is_banned")
+  createdAt DateTime @default(now()) @map("created_at")
+  answers   Answer[]
+
+  @@map("teams")
+}
+
+model Question {
+  id            Int       @id @default(autoincrement())
+  quizId        Int       @map("quiz_id")
+  quiz          Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  title         String
+  content       String
+  isMultiAnswer Boolean   @default(false) @map("is_multi_answer")
+  isReleased    Boolean   @default(false) @map("is_released")
+  releasedAt    DateTime? @map("released_at")
+  orderIndex    Int       @default(0) @map("order_index")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  options       Option[]
+  answers       Answer[]
+
+  @@index([quizId, isReleased])
+  @@map("questions")
+}
+
+model Option {
+  id          Int      @id @default(autoincrement())
+  questionId  Int      @map("question_id")
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  content     String
+  isCorrect   Boolean  @default(false) @map("is_correct")
+  optionOrder Int      @default(0) @map("option_order")
+
+  @@index([questionId])
+  @@map("options")
+}
+
+model Answer {
+  id              Int      @id @default(autoincrement())
+  teamId          Int      @map("team_id")
+  team            Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  questionId      Int      @map("question_id")
+  question        Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOptions String   @map("selected_options")
+  isCorrect       Boolean  @default(false) @map("is_correct")
+  score           Int      @default(0)
+  answerRank      Int?     @map("answer_rank")
+  submittedAt     DateTime @default(now()) @map("submitted_at")
+
+  @@unique([teamId, questionId])
+  @@index([questionId])
+  @@map("answers")
+}
+
+model Setting {
+  key   String @id
+  value String
+
+  @@map("settings")
+}
