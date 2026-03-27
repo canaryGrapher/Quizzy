@@ -9,14 +9,14 @@ export async function POST(request) {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { action, questionId } = await request.json();
+  const { action, questionId, sectionId } = await request.json();
 
   // ─── Release a question (DB + live screen) ─────────────────────────────────
   if (action === 'releaseQuestion') {
     if (!questionId) return NextResponse.json({ error: 'questionId required' }, { status: 400 });
     const qid = parseInt(questionId);
 
-    const q = await prisma.question.findUnique({ where: { id: qid }, include: { quiz: true } });
+    const q = await prisma.question.findUnique({ where: { id: qid }, include: { quiz: true, section: { select: { name: true } } } });
     if (!q) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     // Block if previous timed question is still open
@@ -65,6 +65,7 @@ export async function POST(request) {
       title: q.title,
       content: q.content,
       isMultiAnswer: q.isMultiAnswer,
+      sectionName: q.section?.name ?? null,
       releasedAt: now.toISOString(),
       timeLimitSeconds: q.quiz.timeLimitSeconds,
       options: options.map(o => ({ id: o.id, content: o.content })),
@@ -108,7 +109,7 @@ export async function POST(request) {
   } else if (action === 'showQuestion') {
     if (!questionId) return NextResponse.json({ error: 'questionId required' }, { status: 400 });
     const qid = parseInt(questionId);
-    const question = await prisma.question.findUnique({ where: { id: qid }, include: { options: { orderBy: { optionOrder: 'asc' } }, quiz: true } });
+    const question = await prisma.question.findUnique({ where: { id: qid }, include: { options: { orderBy: { optionOrder: 'asc' } }, quiz: true, section: { select: { name: true } } } });
     if (!question) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const existingAnswers = await prisma.answer.findMany({
@@ -123,6 +124,7 @@ export async function POST(request) {
       title: question.title,
       content: question.content,
       isMultiAnswer: question.isMultiAnswer,
+      sectionName: question.section?.name ?? null,
       releasedAt: question.releasedAt?.toISOString() ?? null,
       timeLimitSeconds: question.quiz.timeLimitSeconds,
       options: question.options.map(o => ({ id: o.id, content: o.content })),
@@ -184,6 +186,15 @@ export async function POST(request) {
     updateLiveState({ fastestAnswers: [] });
     emitToAll('feed:reset', {});
     return NextResponse.json({ success: true });
+
+  // ─── Enable / disable a section ───────────────────────────────────────────
+  } else if (action === 'enableSection' || action === 'disableSection') {
+    if (!sectionId) return NextResponse.json({ error: 'sectionId required' }, { status: 400 });
+    const sid = parseInt(sectionId);
+    const isEnabled = action === 'enableSection';
+    const section = await prisma.section.update({ where: { id: sid }, data: { isEnabled } });
+    emitToAll('section:toggled', { sectionId: sid, isEnabled });
+    return NextResponse.json({ success: true, id: section.id, isEnabled: section.isEnabled });
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 });

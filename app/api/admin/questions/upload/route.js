@@ -19,10 +19,28 @@ export async function POST(request) {
     const text = await file.text();
     const records = parse(text, { columns: true, skip_empty_lines: true, trim: true });
     const created = [];
+    const sectionCache = {};
 
     for (const record of records) {
       const question = record['Question'];
       if (!question) continue;
+
+      // Resolve section
+      let sectionId = null;
+      const sectionName = record['Section']?.trim();
+      if (sectionName) {
+        if (!sectionCache[sectionName]) {
+          let section = await prisma.section.findFirst({ where: { quizId, name: sectionName } });
+          if (!section) {
+            const count = await prisma.section.count({ where: { quizId } });
+            section = await prisma.section.create({
+              data: { quizId, name: sectionName, orderIndex: count },
+            });
+          }
+          sectionCache[sectionName] = section;
+        }
+        sectionId = sectionCache[sectionName].id;
+      }
 
       const correctIndices = new Set(
         (record['CorrectAnswers'] || '').split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n > 0)
@@ -40,6 +58,7 @@ export async function POST(request) {
       const q = await prisma.question.create({
         data: {
           quizId,
+          sectionId,
           title,
           content: question,
           isMultiAnswer: isMulti,

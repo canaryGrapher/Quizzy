@@ -225,7 +225,12 @@ export default function LiveScreen() {
           <div className="flex-1 flex gap-0 overflow-hidden">
             {/* Left: Question */}
             <div className="flex-1 flex flex-col px-10 py-8 overflow-y-auto">
-              <div className="mb-4">
+              <div className="mb-4 flex items-center gap-3">
+                {currentQuestion.sectionName && (
+                  <span className="text-xs font-bold text-purple-400 uppercase tracking-widest bg-purple-400/10 border border-purple-400/20 px-3 py-1 rounded-full">
+                    {currentQuestion.sectionName}
+                  </span>
+                )}
                 <span className="text-sm font-bold text-cyan-400 uppercase tracking-widest">
                   {currentQuestion.isMultiAnswer ? 'Select all that apply' : 'Choose one answer'}
                 </span>

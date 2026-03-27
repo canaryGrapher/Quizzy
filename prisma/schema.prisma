@@ -16,8 +16,22 @@ model Quiz {
   timeLimitSeconds  Int?       @map("time_limit_seconds")
   createdAt         DateTime   @default(now()) @map("created_at")
   questions         Question[]
+  sections          Section[]
 
   @@map("quizzy")
+}
+
+model Section {
+  id         Int        @id @default(autoincrement())
+  quizId     Int        @map("quiz_id")
+  quiz       Quiz       @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  name       String
+  isEnabled  Boolean    @default(true) @map("is_enabled")
+  orderIndex Int        @default(0) @map("order_index")
+  questions  Question[]
+
+  @@index([quizId])
+  @@map("sections")
 }
 
 model Team {
@@ -35,6 +49,8 @@ model Question {
   id            Int       @id @default(autoincrement())
   quizId        Int       @map("quiz_id")
   quiz          Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  sectionId     Int?      @map("section_id")
+  section       Section?  @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   title         String
   content       String
   isMultiAnswer Boolean   @default(false) @map("is_multi_answer")
@@ -46,6 +62,7 @@ model Question {
   answers       Answer[]
 
   @@index([quizId, isReleased])
+  @@index([sectionId])
   @@map("questions")
 }
 

@@ -64,10 +64,11 @@ function Medal({ rank }) {
 /* ════════════════════════════════════════
    ADD QUESTION MODAL
    ════════════════════════════════════════ */
-function AddQuestionModal({ quizId, onClose, onAdded }) {
+function AddQuestionModal({ quizId, sections, onClose, onAdded }) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [isMultiAnswer, setIsMultiAnswer] = useState(false);
+  const [sectionId, setSectionId] = useState('');
   const [options, setOptions] = useState([
     { content: '', isCorrect: false },
     { content: '', isCorrect: false },
@@ -101,7 +102,7 @@ function AddQuestionModal({ quizId, onClose, onAdded }) {
       const res = await fetch('/api/admin/questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quizId, title: title.trim(), content: content.trim(), isMultiAnswer, options: filled }),
+        body: JSON.stringify({ quizId, title: title.trim(), content: content.trim(), isMultiAnswer, options: filled, sectionId: sectionId || null }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Failed'); setSaving(false); return; }
@@ -129,6 +130,15 @@ function AddQuestionModal({ quizId, onClose, onAdded }) {
           </button>
           <span className="text-sm text-apple-text font-medium">Multi-answer</span>
         </div>
+        {sections?.length > 0 && (
+          <div>
+            <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Section (optional)</label>
+            <select value={sectionId} onChange={e => setSectionId(e.target.value)} className="w-full px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all">
+              <option value="">No section</option>
+              {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+        )}
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide">Options</label>
@@ -200,7 +210,8 @@ function UploadQuestionsModal({ quizId, onClose, onUploaded }) {
           <>
             <div className="bg-apple-gray border border-apple-gray-2 rounded-apple p-4">
               <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">CSV Format</p>
-              <pre className="text-xs text-apple-text font-mono overflow-x-auto">{`Question,isMultiAnswer,Option1,Option2,Option3,Option4,CorrectAnswers\n"What is BTC?",false,"Digital gold","A stock","A bond","CBDC","1"\n"Pick all...",true,"opt1","opt2","opt3","opt4","1,3"`}</pre>
+              <pre className="text-xs text-apple-text font-mono overflow-x-auto">{`Section,Question,isMultiAnswer,Option1,Option2,Option3,Option4,CorrectAnswers\n"Round 1","What is BTC?",false,"Digital gold","A stock","A bond","CBDC","1"\n"Round 1","Pick all...",true,"opt1","opt2","opt3","opt4","1,3"\n,"No section Q",false,"A","B","C","D","2"`}</pre>
+              <p className="text-xs text-apple-text-3 mt-1">Section column is optional — leave blank for no section.</p>
             </div>
             <input type="file" accept=".csv,text/csv" onChange={e => setFile(e.target.files[0])} className="w-full text-sm text-apple-text-2 file:mr-3 file:py-2 file:px-4 file:rounded-apple file:border-0 file:text-sm file:font-semibold file:bg-apple-blue file:text-white hover:file:bg-blue-600 cursor-pointer" />
             <div className="flex justify-end gap-3">
@@ -401,27 +412,119 @@ function LiveScoresTab() {
 }
 
 /* ════════════════════════════════════════
+   MANAGE SECTIONS MODAL
+   ════════════════════════════════════════ */
+function ManageSectionsModal({ quizId, sections, onClose, onChange }) {
+  const [newName, setNewName] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [renamingId, setRenamingId] = useState(null);
+  const [renamingValue, setRenamingValue] = useState('');
+  const [busy, setBusy] = useState({});
+
+  const addSection = async () => {
+    if (!newName.trim()) return;
+    setAdding(true);
+    try {
+      await fetch('/api/admin/sections', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quizId, name: newName.trim() }) });
+      setNewName('');
+      onChange();
+    } catch {}
+    setAdding(false);
+  };
+
+  const renameSection = async (id) => {
+    if (!renamingValue.trim()) return;
+    setBusy(prev => ({ ...prev, [id]: true }));
+    try {
+      await fetch(`/api/admin/sections/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: renamingValue.trim() }) });
+      setRenamingId(null);
+      onChange();
+    } catch {}
+    setBusy(prev => ({ ...prev, [id]: false }));
+  };
+
+  const deleteSection = async (id, name) => {
+    if (!confirm(`Delete section "${name}"? Questions in it will become unsectioned.`)) return;
+    setBusy(prev => ({ ...prev, [`del-${id}`]: true }));
+    try {
+      await fetch(`/api/admin/sections/${id}`, { method: 'DELETE' });
+      onChange();
+    } catch {}
+    setBusy(prev => ({ ...prev, [`del-${id}`]: false }));
+  };
+
+  return (
+    <Modal title="Manage Sections" onClose={onClose}>
+      <div className="space-y-4">
+        {sections.length === 0 ? (
+          <p className="text-sm text-apple-text-2 text-center py-4">No sections yet. Add one below.</p>
+        ) : (
+          <div className="space-y-2">
+            {sections.map(s => (
+              <div key={s.id} className="flex items-center gap-2 p-3 border border-apple-gray-2 rounded-apple bg-white">
+                {renamingId === s.id ? (
+                  <>
+                    <input autoFocus value={renamingValue} onChange={e => setRenamingValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') renameSection(s.id); if (e.key === 'Escape') setRenamingId(null); }} className="flex-1 text-sm px-2 py-1 border border-apple-gray-3 rounded-apple focus:outline-none focus:ring-2 focus:ring-apple-blue" />
+                    <button onClick={() => renameSection(s.id)} disabled={busy[s.id]} className="text-xs font-semibold text-apple-blue hover:underline">Save</button>
+                    <button onClick={() => setRenamingId(null)} className="text-xs text-apple-text-3 hover:text-apple-text">Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 text-sm font-medium text-apple-text">{s.name}</span>
+                    <span className="text-xs text-apple-text-3">{s.questionCount} q</span>
+                    <button onClick={() => { setRenamingId(s.id); setRenamingValue(s.name); }} className="p-1 text-apple-text-3 hover:text-apple-blue transition-colors" title="Rename">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    </button>
+                    <button onClick={() => deleteSection(s.id, s.name)} disabled={busy[`del-${s.id}`]} className="p-1 text-apple-text-3 hover:text-apple-red transition-colors" title="Delete section">
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2 pt-2 border-t border-apple-gray-2">
+          <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSection()} placeholder="New section name…" className="flex-1 px-3 py-2 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all" />
+          <button onClick={addSection} disabled={!newName.trim() || adding} className="px-4 py-2 text-sm font-semibold text-white bg-apple-blue rounded-apple hover:bg-blue-600 transition-colors disabled:opacity-50 flex items-center gap-1.5">
+            {adding && <Spinner size={3} />}Add
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ════════════════════════════════════════
    QUESTIONS LIST (inside a quiz)
    ════════════════════════════════════════ */
 function QuizQuestionsPanel({ quiz, onBack }) {
   const [questions, setQuestions] = useState([]);
+  const [sections, setSections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
   const [toggling, setToggling] = useState({});
   const [deleting, setDeleting] = useState({});
   const [showAdd, setShowAdd] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  const [showSections, setShowSections] = useState(false);
   const [responsesQ, setResponsesQ] = useState(null);
 
-  const loadQuestions = useCallback(async () => {
+  const loadAll = useCallback(async () => {
     try {
-      const data = await fetch(`/api/admin/questions?quizId=${quiz.id}`).then(r => r.json());
-      if (Array.isArray(data)) setQuestions(data);
+      const [qdata, sdata] = await Promise.all([
+        fetch(`/api/admin/questions?quizId=${quiz.id}`).then(r => r.json()),
+        fetch(`/api/admin/sections?quizId=${quiz.id}`).then(r => r.json()),
+      ]);
+      if (Array.isArray(qdata)) setQuestions(qdata);
+      if (Array.isArray(sdata)) setSections(sdata);
     } catch {}
     setLoading(false);
   }, [quiz.id]);
 
-  useEffect(() => { loadQuestions(); }, [loadQuestions]);
+  const loadQuestions = loadAll;
+
+  useEffect(() => { loadAll(); }, [loadAll]);
 
   const toggleRelease = async (q) => {
     setToggling(prev => ({ ...prev, [q.id]: true }));
@@ -448,8 +551,9 @@ function QuizQuestionsPanel({ quiz, onBack }) {
 
   return (
     <div>
-      {showAdd && <AddQuestionModal quizId={quiz.id} onClose={() => setShowAdd(false)} onAdded={loadQuestions} />}
-      {showUpload && <UploadQuestionsModal quizId={quiz.id} onClose={() => setShowUpload(false)} onUploaded={loadQuestions} />}
+      {showAdd && <AddQuestionModal quizId={quiz.id} sections={sections} onClose={() => setShowAdd(false)} onAdded={loadAll} />}
+      {showUpload && <UploadQuestionsModal quizId={quiz.id} onClose={() => setShowUpload(false)} onUploaded={loadAll} />}
+      {showSections && <ManageSectionsModal quizId={quiz.id} sections={sections} onClose={() => setShowSections(false)} onChange={loadAll} />}
       {responsesQ && <ResponsesModal question={responsesQ} onClose={() => setResponsesQ(null)} />}
 
       {/* Breadcrumb */}
@@ -466,9 +570,13 @@ function QuizQuestionsPanel({ quiz, onBack }) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-apple-text tracking-tight">Questions</h2>
-          <p className="text-sm text-apple-text-2 mt-0.5">{questions.length} total · {questions.filter(q => q.isReleased).length} released</p>
+          <p className="text-sm text-apple-text-2 mt-0.5">{questions.length} total · {questions.filter(q => q.isReleased).length} released{sections.length > 0 ? ` · ${sections.length} section${sections.length !== 1 ? 's' : ''}` : ''}</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setShowSections(true)} className="flex items-center gap-1.5 text-sm font-semibold text-apple-text-2 bg-white border border-apple-gray-2 px-4 py-2 rounded-apple hover:border-apple-blue hover:text-apple-blue transition-colors shadow-apple-sm">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h7"/></svg>
+            Sections
+          </button>
           <button onClick={() => setShowUpload(true)} className="flex items-center gap-1.5 text-sm font-semibold text-apple-text-2 bg-white border border-apple-gray-2 px-4 py-2 rounded-apple hover:border-apple-blue hover:text-apple-blue transition-colors shadow-apple-sm">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
             Upload CSV
@@ -487,62 +595,97 @@ function QuizQuestionsPanel({ quiz, onBack }) {
           <p className="text-apple-text-2 mb-4">No questions yet.</p>
           <button onClick={() => setShowAdd(true)} className="text-apple-blue font-semibold text-sm hover:underline">Add your first question →</button>
         </div>
-      ) : (
-        <div className="space-y-3">
-          {questions.map((q, i) => {
-            const isOpen = expanded === q.id;
-            return (
-              <div key={q.id} className={`bg-white border rounded-apple-lg shadow-apple-sm overflow-hidden ${q.isReleased ? 'border-apple-green/40' : 'border-apple-gray-2'}`}>
-                <div className="flex items-center gap-3 px-5 py-4 cursor-pointer hover:bg-apple-gray/40 transition-colors" onClick={() => setExpanded(isOpen ? null : q.id)}>
-                  <span className="w-6 h-6 rounded-full bg-apple-gray-2 flex items-center justify-center text-xs font-bold text-apple-text-2 flex-shrink-0">{i + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-apple-text truncate">{q.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {q.isReleased ? <span className="text-xs font-semibold text-apple-green">Released</span> : <span className="text-xs text-apple-text-3">Unreleased</span>}
-                      {q.isMultiAnswer && <span className="text-xs bg-purple-100 text-purple-600 font-semibold px-1.5 py-0.5 rounded-full">Multi</span>}
-                      <span className="text-xs text-apple-text-3">{q.stats?.attempted || 0} responses</span>
-                    </div>
+      ) : (() => {
+        // Group questions by section
+        const hasSections = questions.some(q => q.sectionId !== null);
+        const groups = hasSections ? (() => {
+          const g = [];
+          const seen = {};
+          for (const q of questions) {
+            const key = q.sectionId ?? 'none';
+            if (!seen[key]) {
+              seen[key] = { sectionId: q.sectionId, sectionName: q.sectionName, questions: [] };
+              g.push(seen[key]);
+            }
+            seen[key].questions.push(q);
+          }
+          return g;
+        })() : [{ sectionId: null, sectionName: null, questions }];
+
+        const renderQuestion = (q, i) => {
+          const isOpen = expanded === q.id;
+          return (
+            <div key={q.id} className={`bg-white border rounded-apple-lg shadow-apple-sm overflow-hidden ${q.isReleased ? 'border-apple-green/40' : 'border-apple-gray-2'}`}>
+              <div className="flex items-center gap-3 px-5 py-4 cursor-pointer hover:bg-apple-gray/40 transition-colors" onClick={() => setExpanded(isOpen ? null : q.id)}>
+                <span className="w-6 h-6 rounded-full bg-apple-gray-2 flex items-center justify-center text-xs font-bold text-apple-text-2 flex-shrink-0">{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-apple-text truncate">{q.title}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {q.isReleased ? <span className="text-xs font-semibold text-apple-green">Released</span> : <span className="text-xs text-apple-text-3">Unreleased</span>}
+                    {q.isMultiAnswer && <span className="text-xs bg-purple-100 text-purple-600 font-semibold px-1.5 py-0.5 rounded-full">Multi</span>}
+                    <span className="text-xs text-apple-text-3">{q.stats?.attempted || 0} responses</span>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                    <button onClick={() => toggleRelease(q)} disabled={toggling[q.id]} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${q.isReleased ? 'bg-apple-green' : 'bg-apple-gray-3'} ${toggling[q.id] ? 'opacity-50' : ''}`}>
-                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${q.isReleased ? 'translate-x-4' : 'translate-x-0.5'}`}/>
-                    </button>
-                    <button onClick={() => setResponsesQ(q)} className="p-1.5 text-apple-text-3 hover:text-apple-blue transition-colors" title="View responses">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-                    </button>
-                    <button onClick={() => deleteQuestion(q)} disabled={deleting[q.id]} className="p-1.5 text-apple-text-3 hover:text-apple-red transition-colors">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                    </button>
-                  </div>
-                  <svg className={`w-4 h-4 text-apple-text-3 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
                 </div>
-                {isOpen && (
-                  <div className="border-t border-apple-gray-2 px-5 py-4 space-y-4 bg-apple-gray/20">
+                <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => toggleRelease(q)} disabled={toggling[q.id]} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${q.isReleased ? 'bg-apple-green' : 'bg-apple-gray-3'} ${toggling[q.id] ? 'opacity-50' : ''}`}>
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${q.isReleased ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+                  </button>
+                  <button onClick={() => setResponsesQ(q)} className="p-1.5 text-apple-text-3 hover:text-apple-blue transition-colors" title="View responses">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                  </button>
+                  <button onClick={() => deleteQuestion(q)} disabled={deleting[q.id]} className="p-1.5 text-apple-text-3 hover:text-apple-red transition-colors">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                  </button>
+                </div>
+                <svg className={`w-4 h-4 text-apple-text-3 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
+              </div>
+              {isOpen && (
+                <div className="border-t border-apple-gray-2 px-5 py-4 space-y-4 bg-apple-gray/20">
+                  <div>
+                    <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">Content</p>
+                    <div className="bg-white border border-apple-gray-2 rounded-apple p-4 md-content text-sm text-apple-text" dangerouslySetInnerHTML={{ __html: renderMd(q.content) }} />
+                  </div>
+                  {q.options?.length > 0 && (
                     <div>
-                      <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">Content</p>
-                      <div className="bg-white border border-apple-gray-2 rounded-apple p-4 md-content text-sm text-apple-text" dangerouslySetInnerHTML={{ __html: renderMd(q.content) }} />
-                    </div>
-                    {q.options?.length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">Options</p>
-                        <div className="space-y-2">
-                          {q.options.map((opt, oi) => (
-                            <div key={opt.id} className={`flex items-start gap-3 rounded-apple p-3 border text-sm ${opt.isCorrect ? 'border-apple-green bg-green-50' : 'border-apple-gray-2 bg-white'}`}>
-                              <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white ${opt.isCorrect ? 'bg-apple-green' : 'bg-apple-gray-4'}`}>{String.fromCharCode(65 + oi)}</span>
-                              <span className={opt.isCorrect ? 'text-green-800 font-medium' : 'text-apple-text'}>{opt.content}</span>
-                              {opt.isCorrect && <span className="ml-auto text-xs font-semibold text-apple-green flex-shrink-0">✓ Correct</span>}
-                            </div>
-                          ))}
-                        </div>
+                      <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">Options</p>
+                      <div className="space-y-2">
+                        {q.options.map((opt, oi) => (
+                          <div key={opt.id} className={`flex items-start gap-3 rounded-apple p-3 border text-sm ${opt.isCorrect ? 'border-apple-green bg-green-50' : 'border-apple-gray-2 bg-white'}`}>
+                            <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white ${opt.isCorrect ? 'bg-apple-green' : 'bg-apple-gray-4'}`}>{String.fromCharCode(65 + oi)}</span>
+                            <span className={opt.isCorrect ? 'text-green-800 font-medium' : 'text-apple-text'}>{opt.content}</span>
+                            {opt.isCorrect && <span className="ml-auto text-xs font-semibold text-apple-green flex-shrink-0">✓ Correct</span>}
+                          </div>
+                        ))}
                       </div>
-                    )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        return (
+          <div className="space-y-6">
+            {groups.map(group => (
+              <div key={group.sectionId ?? 'none'}>
+                {hasSections && (
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-xs font-bold text-apple-text-2 uppercase tracking-widest">
+                      {group.sectionName ?? 'No Section'}
+                    </span>
+                    <span className="text-xs text-apple-text-3">{group.questions.length} question{group.questions.length !== 1 ? 's' : ''}</span>
+                    <div className="flex-1 h-px bg-apple-gray-2" />
                   </div>
                 )}
+                <div className="space-y-3">
+                  {group.questions.map((q, i) => renderQuestion(q, i))}
+                </div>
               </div>
-            );
-          })}
-        </div>
-      )}
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -950,6 +1093,7 @@ function SettingsTab() {
 function LiveControlTab() {
   const [activeQuiz, setActiveQuiz] = useState(null);
   const [questions, setQuestions] = useState([]);
+  const [sections, setSections] = useState([]);
   const [liveState, setLiveState] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState({});
@@ -965,8 +1109,12 @@ function LiveControlTab() {
         const active = qdata.find(q => q.isActive);
         setActiveQuiz(active || null);
         if (active) {
-          const qs = await fetch(`/api/admin/questions?quizId=${active.id}`).then(r => r.json());
+          const [qs, secs] = await Promise.all([
+            fetch(`/api/admin/questions?quizId=${active.id}`).then(r => r.json()),
+            fetch(`/api/admin/sections?quizId=${active.id}`).then(r => r.json()),
+          ]);
           if (Array.isArray(qs)) setQuestions(qs);
+          if (Array.isArray(secs)) setSections(secs);
         }
       }
       setLiveState(ldata);
@@ -993,6 +1141,20 @@ function LiveControlTab() {
       });
       const data = await fetch('/api/admin/live').then(r => r.json());
       setLiveState(data);
+    } catch {}
+    setBusy(prev => ({ ...prev, [key]: false }));
+  };
+
+  const controlSection = async (action, sectionId) => {
+    const key = `${action}-${sectionId}`;
+    setBusy(prev => ({ ...prev, [key]: true }));
+    try {
+      await fetch('/api/admin/live/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, sectionId }),
+      });
+      await loadAll();
     } catch {}
     setBusy(prev => ({ ...prev, [key]: false }));
   };
@@ -1029,6 +1191,34 @@ function LiveControlTab() {
         </div>
       )}
 
+      {sections.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-bold text-apple-text-2 uppercase tracking-wide mb-3">Sections</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {sections.map(s => {
+              const enableKey = `enableSection-${s.id}`;
+              const disableKey = `disableSection-${s.id}`;
+              const isBusy = busy[enableKey] || busy[disableKey];
+              return (
+                <div key={s.id} className={`bg-white border rounded-apple-lg p-4 shadow-apple-sm flex items-center gap-3 ${s.isEnabled ? 'border-apple-green/40' : 'border-apple-gray-2 opacity-60'}`}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-apple-text truncate">{s.name}</p>
+                    <p className="text-xs text-apple-text-3">{s.questionCount} question{s.questionCount !== 1 ? 's' : ''} · {s.isEnabled ? <span className="text-apple-green font-semibold">Visible to teams</span> : <span>Hidden from teams</span>}</p>
+                  </div>
+                  <button
+                    onClick={() => controlSection(s.isEnabled ? 'disableSection' : 'enableSection', s.id)}
+                    disabled={isBusy}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${s.isEnabled ? 'bg-apple-green' : 'bg-apple-gray-3'} ${isBusy ? 'opacity-50' : ''}`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${s.isEnabled ? 'translate-x-4' : 'translate-x-0.5'}`}/>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Questions control */}
         <div className="lg:col-span-2 space-y-3">
@@ -1056,6 +1246,7 @@ function LiveControlTab() {
                       <div className="flex items-center gap-2 mt-0.5">
                         {q.isReleased ? <span className="text-xs text-apple-green font-semibold">Released to contestants</span> : <span className="text-xs text-apple-text-3">Not released</span>}
                         {isShowing && <span className="text-xs font-semibold text-apple-blue bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-full">On screen</span>}
+                        {q.sectionName && <span className="text-xs text-purple-600 bg-purple-50 border border-purple-100 px-1.5 py-0.5 rounded-full">{q.sectionName}</span>}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">

@@ -13,19 +13,31 @@ export async function GET(request) {
     where: quizId ? { quizId } : undefined,
     include: {
       options: { orderBy: { optionOrder: 'asc' } },
+      section: { select: { id: true, name: true } },
       _count: { select: { answers: true } },
     },
     orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
   });
 
-  const withStats = await Promise.all(questions.map(async (q) => {
-    const answers = await prisma.answer.findMany({
-      where: { questionId: q.id },
-      select: { isCorrect: true },
-    });
+  const questionIds = questions.map(q => q.id);
+  const allAnswers = await prisma.answer.findMany({
+    where: { questionId: { in: questionIds } },
+    select: { questionId: true, isCorrect: true },
+  });
+
+  const answersByQuestion = {};
+  for (const a of allAnswers) {
+    if (!answersByQuestion[a.questionId]) answersByQuestion[a.questionId] = [];
+    answersByQuestion[a.questionId].push(a);
+  }
+
+  const withStats = questions.map((q) => {
+    const answers = answersByQuestion[q.id] ?? [];
     return {
       id: q.id,
       quizId: q.quizId,
+      sectionId: q.sectionId,
+      sectionName: q.section?.name ?? null,
       title: q.title,
       content: q.content,
       isMultiAnswer: q.isMultiAnswer,
@@ -42,7 +54,7 @@ export async function GET(request) {
         correct: answers.filter(a => a.isCorrect).length,
       },
     };
-  }));
+  });
 
   return NextResponse.json(withStats);
 }
@@ -51,13 +63,14 @@ export async function POST(request) {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { quizId, title, content, isMultiAnswer, options } = await request.json();
+  const { quizId, title, content, isMultiAnswer, options, sectionId } = await request.json();
   if (!quizId) return NextResponse.json({ error: 'quizId required' }, { status: 400 });
   if (!title || !content) return NextResponse.json({ error: 'Title and content required' }, { status: 400 });
 
   const question = await prisma.question.create({
     data: {
       quizId: parseInt(quizId),
+      sectionId: sectionId ? parseInt(sectionId) : null,
       title,
       content,
       isMultiAnswer: !!isMultiAnswer,

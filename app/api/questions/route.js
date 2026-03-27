@@ -10,7 +10,15 @@ export async function GET() {
   if (!activeQuiz) return NextResponse.json([]);
 
   const questions = await prisma.question.findMany({
-    where: { quizId: activeQuiz.id, isReleased: true },
+    where: {
+      quizId: activeQuiz.id,
+      isReleased: true,
+      OR: [
+        { sectionId: null },
+        { section: { isEnabled: true } },
+      ],
+    },
+    include: { section: { select: { id: true, name: true } } },
     orderBy: [{ orderIndex: 'asc' }, { id: 'asc' }],
   });
 
@@ -21,6 +29,8 @@ export async function GET() {
     id: q.id,
     title: q.title,
     isMultiAnswer: q.isMultiAnswer,
+    sectionId: q.sectionId,
+    sectionName: q.section?.name ?? null,
     answered: !!answerMap[q.id],
     isCorrect: answerMap[q.id] ? answerMap[q.id].isCorrect : null,
     score: answerMap[q.id] ? answerMap[q.id].score : null,

@@ -99,7 +99,7 @@ export default function ContestantHome() {
     return () => clearInterval(interval);
   }, []);
 
-  // Socket for admin messages and banish
+  // Socket for admin messages, banish, and section toggles
   useEffect(() => {
     if (!me) return;
     let socket;
@@ -116,6 +116,9 @@ export default function ContestantHome() {
       socket.on('quiz:banished', () => {
         router.replace('/?banished=1');
       });
+      socket.on('section:toggled', () => {
+        loadQuestions();
+      });
     });
     return () => socket?.disconnect();
   }, [me?.teamId]);
@@ -128,6 +131,22 @@ export default function ContestantHome() {
   const answered = questions.filter(q => q.answered).length;
   const correct = questions.filter(q => q.isCorrect).length;
   const totalScore = questions.reduce((sum, q) => sum + (q.score || 0), 0);
+
+  // Group questions by section (null = no section)
+  const hasSections = questions.some(q => q.sectionId !== null);
+  const questionGroups = hasSections ? (() => {
+    const groups = [];
+    const seen = {};
+    for (const q of questions) {
+      const key = q.sectionId ?? 'none';
+      if (!seen[key]) {
+        seen[key] = { sectionId: q.sectionId, sectionName: q.sectionName, questions: [] };
+        groups.push(seen[key]);
+      }
+      seen[key].questions.push(q);
+    }
+    return groups;
+  })() : null;
 
   return (
     <>
@@ -172,6 +191,23 @@ export default function ContestantHome() {
             <div className="text-6xl mb-4">🔒</div>
             <h3 className="text-lg font-semibold text-apple-text mb-2">No questions yet</h3>
             <p className="text-sm text-apple-text-2">Questions will appear here when released by the admin.</p>
+          </div>
+        ) : questionGroups ? (
+          <div className="space-y-8">
+            {questionGroups.map(group => (
+              <div key={group.sectionId ?? 'none'}>
+                <div className="flex items-center gap-3 mb-4">
+                  <h2 className="text-base font-bold text-apple-text tracking-tight">
+                    {group.sectionName ?? 'General'}
+                  </h2>
+                  <span className="text-xs text-apple-text-3">{group.questions.length} question{group.questions.length !== 1 ? 's' : ''}</span>
+                  <div className="flex-1 h-px bg-apple-gray-2" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {group.questions.map((q, i) => <QuestionCard key={q.id} q={q} index={i} />)}
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
