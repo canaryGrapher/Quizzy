@@ -1,35 +1,98 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <title>CryptoCup</title>
-    <link rel="stylesheet/css" href="/styling/reset.css" />
-    <link rel="stylesheet" href="/styling/stylingHome.css" />
-    <script src="homeScript.js"></script>
-  </head>
-  <body>
-    <div id="loginForm">
-      <h1>CryptoCup</h1>
-      <p>Round 2</p>
-
-      <form id="secureLogin" action="/secureLogin" method="POST">
-        <input
-          type="text"
-          name="teamname"
-          placeholder="Team Name"
-          id="userAuth"
-        />
-        <br />
-
-        <input
-          type="password"
-          name="password"
-          placeholder="Password"
-          id="passAuth"
-          value=""
-        />
-        <br /><br />
-        <input type="submit" id="loginButton" value="Start" />
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quizzy — Login</title>
+  <link rel="stylesheet" href="/styles/main.css">
+  <style>
+    body { background: var(--bg-0); display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; overflow: hidden; }
+    .bg-orb { position: fixed; border-radius: 50%; filter: blur(80px); pointer-events: none; }
+    .orb-1 { width: 500px; height: 500px; background: radial-gradient(circle, rgba(6,182,212,0.08), transparent); top: -150px; right: -150px; animation: drift 12s ease-in-out infinite; }
+    .orb-2 { width: 400px; height: 400px; background: radial-gradient(circle, rgba(139,92,246,0.07), transparent); bottom: -100px; left: -100px; animation: drift 12s ease-in-out infinite reverse; }
+    @keyframes drift { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(30px,-20px) scale(1.05); } }
+    .login-wrap { width: 100%; max-width: 400px; position: relative; z-index: 1; }
+    .login-card { background: var(--bg-2); border: 1px solid var(--border-light); border-radius: var(--radius-xl); padding: 40px; box-shadow: var(--shadow-lg), 0 0 80px rgba(6,182,212,0.06); }
+    .logo-block { text-align: center; margin-bottom: 36px; }
+    .logo-mark { width: 64px; height: 64px; background: var(--gradient); border-radius: 18px; display: flex; align-items: center; justify-content: center; margin: 0 auto 18px; font-size: 30px; box-shadow: var(--glow-cyan); }
+    .logo-title { font-size: 30px; font-weight: 800; letter-spacing: -0.04em; margin-bottom: 4px; }
+    .logo-sub { font-size: 13px; color: var(--text-2); }
+    .login-form { display: flex; flex-direction: column; gap: 14px; }
+    .error-box { background: var(--red-dim); border: 1px solid rgba(239,68,68,0.25); border-radius: var(--radius-sm); padding: 11px 14px; font-size: 13px; color: var(--red); display: none; }
+    .error-box.show { display: block; }
+    .divider-text { text-align: center; font-size: 12px; color: var(--text-3); margin-top: 4px; }
+    .divider-text a { color: var(--text-2); transition: var(--t); }
+    .divider-text a:hover { color: var(--cyan); }
+    .glow-line { height: 1px; background: var(--gradient); margin: 28px 0; opacity: 0.3; }
+  </style>
+</head>
+<body>
+  <div class="bg-orb orb-1"></div>
+  <div class="bg-orb orb-2"></div>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="logo-block">
+        <div class="logo-mark">&#8383;</div>
+        <h1 class="logo-title gradient-text">Quizzy</h1>
+        <p class="logo-sub">Cryptocurrency Knowledge Challenge</p>
+      </div>
+      <form class="login-form" id="loginForm" autocomplete="off">
+        <div class="form-group">
+          <label class="form-label">Team Name</label>
+          <input type="text" class="form-input" id="teamname" placeholder="e.g. TeamAlpha" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" class="form-input" id="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" required autocomplete="current-password">
+        </div>
+        <div class="error-box" id="errorBox"></div>
+        <button type="submit" class="btn btn-primary btn-full btn-lg" id="submitBtn">
+          <span id="btnText">Enter Arena</span>
+          <span class="spinner hidden" id="btnSpinner"></span>
+        </button>
       </form>
+      <div class="glow-line"></div>
+      <div class="divider-text">Admin? <a href="/admin">Go to Admin Portal &rarr;</a></div>
     </div>
-  </body>
+  </div>
+  <script>
+    fetch('/api/me').then(r => r.json()).then(d => {
+      if (d.type === 'admin') location.href = '/admin';
+      else if (d.type === 'team') location.href = '/contestant';
+    }).catch(() => {});
+
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var teamname = document.getElementById('teamname').value.trim();
+      var password = document.getElementById('password').value;
+      var errorBox = document.getElementById('errorBox');
+      var submitBtn = document.getElementById('submitBtn');
+      var btnText = document.getElementById('btnText');
+      var btnSpinner = document.getElementById('btnSpinner');
+
+      btnText.textContent = 'Authenticating...';
+      btnSpinner.classList.remove('hidden');
+      submitBtn.disabled = true;
+      errorBox.classList.remove('show');
+
+      try {
+        var res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teamname: teamname, password: password })
+        });
+        var data = await res.json();
+        if (res.ok) { location.href = data.redirect; return; }
+        errorBox.textContent = data.error || 'Invalid credentials';
+        errorBox.classList.add('show');
+      } catch(err) {
+        errorBox.textContent = 'Connection error. Please try again.';
+        errorBox.classList.add('show');
+      }
+      btnText.textContent = 'Enter Arena';
+      btnSpinner.classList.add('hidden');
+      submitBtn.disabled = false;
+    });
+  </script>
+</body>
 </html>
