@@ -11,6 +11,16 @@ export async function PUT(request, { params }) {
   const data = {};
   if (body.name !== undefined) data.name = body.name.trim();
   if (body.isEnabled !== undefined) data.isEnabled = !!body.isEnabled;
+  if (body.timeLimitSeconds !== undefined) data.timeLimitSeconds = body.timeLimitSeconds ? parseInt(body.timeLimitSeconds) : null;
+
+  // Bulk release/unrelease all questions in section
+  if (body.releaseAll !== undefined) {
+    await prisma.question.updateMany({
+      where: { sectionId: id },
+      data: { isReleased: !!body.releaseAll, releasedAt: body.releaseAll ? new Date() : null },
+    });
+    return NextResponse.json({ success: true });
+  }
 
   const section = await prisma.section.update({ where: { id }, data });
   return NextResponse.json({ id: section.id, name: section.name, isEnabled: section.isEnabled });

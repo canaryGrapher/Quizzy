@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,7 +14,7 @@ export default function LoginPage() {
     fetch('/api/me').then(r => r.json()).then(d => {
       if (d.type === 'admin') router.replace('/admin');
       else if (d.type === 'team') router.replace('/contestant');
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   const handleSubmit = async (e) => {
@@ -36,8 +37,12 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-apple-gray flex items-center justify-center p-5">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center p-5" style={{ background: 'linear-gradient(135deg, #e8f0fe 0%, #f0f4ff 40%, #e8f5fe 100%)' }}>
+      {/* Decorative blobs */}
+      <div className="fixed top-[-10%] left-[-10%] w-96 h-96 rounded-full opacity-30 blur-3xl pointer-events-none" style={{ background: 'radial-gradient(circle, #007AFF 0%, transparent 70%)' }} />
+      <div className="fixed bottom-[-5%] right-[-5%] w-80 h-80 rounded-full opacity-20 blur-3xl pointer-events-none" style={{ background: 'radial-gradient(circle, #AF52DE 0%, transparent 70%)' }} />
+
+      <div className="w-full max-w-sm relative">
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-apple-blue rounded-apple-xl flex items-center justify-center mx-auto mb-4 text-white text-3xl font-bold shadow-apple-md">
@@ -47,8 +52,8 @@ export default function LoginPage() {
           <p className="text-apple-text-2 text-sm mt-1">Cryptocurrency Knowledge Challenge</p>
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-apple-xl shadow-apple-md p-8">
+        {/* Glass card */}
+        <div className="bg-white/70 backdrop-blur-xl border border-white/60 rounded-apple-xl p-8" style={{ boxShadow: '0 20px 60px rgba(0,0,0,0.12), 0 0 0 1px rgba(255,255,255,0.6) inset' }}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Team Name</label>
@@ -84,14 +89,17 @@ export default function LoginPage() {
             >
               {loading ? (
                 <>
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z"/></svg>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" /></svg>
                   Authenticating…
                 </>
               ) : 'Enter Arena'}
             </button>
           </form>
           <div className="mt-5 pt-5 border-t border-apple-gray-2 text-center">
-            <a href="/admin" className="text-xs text-apple-text-3 hover:text-apple-blue transition-colors">Admin Portal →</a>
+
+            <a href="/admin" className="text-xs text-apple-text-3 hover:text-apple-blue transition-colors">
+              <Link href="/admin">Admin Portal →</Link>
+            </a>
           </div>
         </div>
       </div>

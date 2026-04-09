@@ -22,6 +22,7 @@ export async function GET(request) {
     name: s.name,
     isEnabled: s.isEnabled,
     orderIndex: s.orderIndex,
+    timeLimitSeconds: s.timeLimitSeconds,
     questionCount: s._count.questions,
   })));
 }

@@ -14,13 +14,15 @@ export async function PUT(request, { params }) {
 
   const before = await prisma.question.findUnique({
     where: { id: qid },
-    include: { quiz: true },
+    include: { quiz: true, section: { select: { timeLimitSeconds: true } } },
   });
   if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const isReleasing = body.isReleased === true && !before.isReleased;
 
-  // Block release if quiz is timed and a previous question's timer is still running
+  const effectiveTimeLimit = before.timeLimitSeconds ?? before.section?.timeLimitSeconds ?? before.quiz.timeLimitSeconds ?? null;
+
+  // Block release if timed and a previous question's timer is still running
   if (isReleasing && before.quiz.timeLimitSeconds) {
     const activeTimed = await prisma.question.findFirst({
       where: {
@@ -30,9 +32,11 @@ export async function PUT(request, { params }) {
         releasedAt: { not: null },
       },
       orderBy: { releasedAt: 'desc' },
+      include: { section: { select: { timeLimitSeconds: true } } },
     });
     if (activeTimed) {
-      const expireAt = new Date(activeTimed.releasedAt).getTime() + before.quiz.timeLimitSeconds * 1000;
+      const activeLimit = activeTimed.timeLimitSeconds ?? activeTimed.section?.timeLimitSeconds ?? before.quiz.timeLimitSeconds ?? null;
+      const expireAt = new Date(activeTimed.releasedAt).getTime() + (activeLimit ?? before.quiz.timeLimitSeconds) * 1000;
       if (Date.now() < expireAt) {
         const secsLeft = Math.ceil((expireAt - Date.now()) / 1000);
         // Count unsubmitted non-banned teams
@@ -58,13 +62,39 @@ export async function PUT(request, { params }) {
   if (body.title !== undefined) data.title = body.title;
   if (body.content !== undefined) data.content = body.content;
   if (body.isMultiAnswer !== undefined) data.isMultiAnswer = !!body.isMultiAnswer;
+  if (body.timeLimitSeconds !== undefined) data.timeLimitSeconds = body.timeLimitSeconds ? parseInt(body.timeLimitSeconds) : null;
+  if (body.starterCode !== undefined) data.starterCode = body.starterCode ? JSON.stringify(body.starterCode) : null;
+  if (body.allowedLanguages !== undefined) data.allowedLanguages = JSON.stringify(body.allowedLanguages);
 
   const after = await prisma.question.update({ where: { id: qid }, data });
 
+  // Handle option and test case edits (only for unreleased questions)
+  if (!before.isReleased && body.options !== undefined) {
+    await prisma.option.deleteMany({ where: { questionId: qid } });
+    if (body.options?.length) {
+      await prisma.option.createMany({
+        data: body.options.map((opt, i) => ({
+          questionId: qid, content: opt.content, isCorrect: !!opt.isCorrect, optionOrder: i,
+        })),
+      });
+    }
+  }
+  if (!before.isReleased && body.testCases !== undefined) {
+    await prisma.testCase.deleteMany({ where: { questionId: qid } });
+    if (body.testCases?.length) {
+      await prisma.testCase.createMany({
+        data: body.testCases.map((tc, i) => ({
+          questionId: qid, input: tc.input ?? '', expectedOutput: tc.expectedOutput ?? '',
+          isHidden: !!tc.isHidden, orderIndex: i,
+        })),
+      });
+    }
+  }
+
   // Handle release → schedule auto-submit timer, notify live screen + contestants
   if (isReleasing) {
-    if (before.quiz.timeLimitSeconds) {
-      scheduleAutoSubmit(qid, before.quiz.timeLimitSeconds * 1000);
+    if (effectiveTimeLimit) {
+      scheduleAutoSubmit(qid, effectiveTimeLimit * 1000);
     }
 
     // Contestant SSE notification

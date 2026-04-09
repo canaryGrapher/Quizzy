@@ -64,11 +64,12 @@ export async function POST(request) {
       id: qid,
       title: q.title,
       content: q.content,
+      type: q.type,
       isMultiAnswer: q.isMultiAnswer,
       sectionName: q.section?.name ?? null,
       releasedAt: now.toISOString(),
       timeLimitSeconds: q.quiz.timeLimitSeconds,
-      options: options.map(o => ({ id: o.id, content: o.content })),
+      options: q.type === 'MCQ' ? options.map(o => ({ id: o.id, content: o.content })) : [],
     };
 
     const fastestAnswers = existingAnswers.map(a => ({
@@ -123,11 +124,12 @@ export async function POST(request) {
       id: qid,
       title: question.title,
       content: question.content,
+      type: question.type,
       isMultiAnswer: question.isMultiAnswer,
       sectionName: question.section?.name ?? null,
       releasedAt: question.releasedAt?.toISOString() ?? null,
       timeLimitSeconds: question.quiz.timeLimitSeconds,
-      options: question.options.map(o => ({ id: o.id, content: o.content })),
+      options: question.type === 'MCQ' ? question.options.map(o => ({ id: o.id, content: o.content })) : [],
     };
 
     updateLiveState({
@@ -157,20 +159,30 @@ export async function POST(request) {
   } else if (action === 'showResults') {
     if (!questionId) return NextResponse.json({ error: 'questionId required' }, { status: 400 });
     const qid = parseInt(questionId);
-    const [options, allAnswers] = await Promise.all([
-      prisma.option.findMany({ where: { questionId: qid }, orderBy: { optionOrder: 'asc' } }),
-      prisma.answer.findMany({ where: { questionId: qid } }),
-    ]);
-    const countMap = {};
-    for (const a of allAnswers) {
-      try { for (const id of JSON.parse(a.selectedOptions)) countMap[id] = (countMap[id] || 0) + 1; } catch {}
+    const question = await prisma.question.findUnique({ where: { id: qid } });
+    const allAnswers = await prisma.answer.findMany({ where: { questionId: qid } });
+
+    let resultStats;
+    if (question?.type === 'CODING') {
+      resultStats = {
+        type: 'CODING',
+        totalAnswered: allAnswers.length,
+        solved: allAnswers.filter(a => a.isCorrect).length,
+      };
+    } else {
+      const options = await prisma.option.findMany({ where: { questionId: qid }, orderBy: { optionOrder: 'asc' } });
+      const countMap = {};
+      for (const a of allAnswers) {
+        try { for (const id of JSON.parse(a.selectedOptions)) countMap[id] = (countMap[id] || 0) + 1; } catch {}
+      }
+      resultStats = {
+        type: 'MCQ',
+        correctOptionIds: options.filter(o => o.isCorrect).map(o => o.id),
+        options: options.map(o => ({ id: o.id, content: o.content, isCorrect: o.isCorrect })),
+        optionStats: countMap,
+        totalAnswered: allAnswers.length,
+      };
     }
-    const resultStats = {
-      correctOptionIds: options.filter(o => o.isCorrect).map(o => o.id),
-      options: options.map(o => ({ id: o.id, content: o.content, isCorrect: o.isCorrect })),
-      optionStats: countMap,
-      totalAnswered: allAnswers.length,
-    };
     updateLiveState({ showResults: true, resultStats });
     emitToAll('results:show', resultStats);
     return NextResponse.json({ success: true });

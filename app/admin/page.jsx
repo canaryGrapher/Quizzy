@@ -1,7 +1,8 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import AnswerChart from '@/components/AnswerChart';
+import CodeEditor from '@/components/CodeEditor';
 
 /* ─── Markdown renderer ─── */
 function renderMd(text) {
@@ -29,16 +30,30 @@ function Modal({ title, onClose, children, wide }) {
   }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative bg-white rounded-apple-xl shadow-apple-lg w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} max-h-[90vh] flex flex-col`}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-apple-gray-2 flex-shrink-0">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-md" onClick={onClose} />
+      <div className={`relative bg-white/90 backdrop-blur-xl border border-white/60 rounded-apple-xl shadow-2xl w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} max-h-[90vh] flex flex-col`} style={{ boxShadow: '0 25px 60px rgba(0,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.5) inset' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-black/5 flex-shrink-0">
           <h2 className="text-base font-bold text-apple-text">{title}</h2>
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-apple-gray hover:bg-apple-gray-2 transition-colors text-apple-text-2">
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 transition-colors text-apple-text-2">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
         <div className="overflow-y-auto flex-1 px-6 py-5">{children}</div>
       </div>
+    </div>
+  );
+}
+
+/* ─── Avatar ─── */
+function Avatar({ name, size = 8 }) {
+  const colors = ['#007AFF','#34C759','#FF9500','#FF3B30','#AF52DE','#FF2D55','#5AC8FA','#FFCC00'];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  const color = colors[Math.abs(hash) % colors.length];
+  const initials = name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  return (
+    <div className={`w-${size} h-${size} rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 select-none`} style={{ background: color, fontSize: size <= 8 ? '0.7rem' : '0.9rem' }}>
+      {initials}
     </div>
   );
 }
@@ -65,18 +80,34 @@ function Medal({ rank }) {
    ADD QUESTION MODAL
    ════════════════════════════════════════ */
 function AddQuestionModal({ quizId, sections, onClose, onAdded }) {
+  const [type, setType] = useState('MCQ');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [isMultiAnswer, setIsMultiAnswer] = useState(false);
   const [sectionId, setSectionId] = useState('');
-  const [options, setOptions] = useState([
-    { content: '', isCorrect: false },
-    { content: '', isCorrect: false },
-    { content: '', isCorrect: false },
-    { content: '', isCorrect: false },
-  ]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // MCQ state
+  const [isMultiAnswer, setIsMultiAnswer] = useState(false);
+  const [options, setOptions] = useState([
+    { content: '', isCorrect: false }, { content: '', isCorrect: false },
+    { content: '', isCorrect: false }, { content: '', isCorrect: false },
+  ]);
+
+  // Coding state
+  const [starterLang, setStarterLang] = useState('javascript');
+  const [starterJS, setStarterJS] = useState('');
+  const [starterPy, setStarterPy] = useState('');
+  const [allowedLanguages, setAllowedLanguages] = useState(['javascript', 'python']);
+  const [testCases, setTestCases] = useState([{ input: '', expectedOutput: '', isHidden: false }]);
+  // Common
+  const [questionTimeLimit, setQuestionTimeLimit] = useState('');
+
+  const toggleLanguage = (lang) => {
+    setAllowedLanguages(prev =>
+      prev.includes(lang) ? prev.filter(l => l !== lang) : [...prev, lang]
+    );
+  };
 
   const updateOption = (i, field, value) => {
     setOptions(prev => {
@@ -90,78 +121,191 @@ function AddQuestionModal({ quizId, sections, onClose, onAdded }) {
     });
   };
 
+  const updateTestCase = (i, field, value) => {
+    setTestCases(prev => { const next = [...prev]; next[i] = { ...next[i], [field]: value }; return next; });
+  };
+
   const submit = async () => {
     setError('');
     if (!title.trim()) { setError('Title is required'); return; }
     if (!content.trim()) { setError('Content is required'); return; }
-    const filled = options.filter(o => o.content.trim());
-    if (filled.length < 2) { setError('At least 2 options required'); return; }
-    if (!filled.some(o => o.isCorrect)) { setError('At least one correct answer required'); return; }
-    setSaving(true);
-    try {
-      const res = await fetch('/api/admin/questions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quizId, title: title.trim(), content: content.trim(), isMultiAnswer, options: filled, sectionId: sectionId || null }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error || 'Failed'); setSaving(false); return; }
-      onAdded();
-      onClose();
-    } catch { setError('Network error'); }
-    setSaving(false);
+
+    if (type === 'MCQ') {
+      const filled = options.filter(o => o.content.trim());
+      if (filled.length < 2) { setError('At least 2 options required'); return; }
+      if (!filled.some(o => o.isCorrect)) { setError('At least one correct answer required'); return; }
+      setSaving(true);
+      try {
+        const res = await fetch('/api/admin/questions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quizId, title: title.trim(), content: content.trim(), type: 'MCQ', isMultiAnswer, options: filled, sectionId: sectionId || null, timeLimitSeconds: questionTimeLimit ? parseInt(questionTimeLimit) : null }),
+        });
+        const data = await res.json();
+        if (!res.ok) { setError(data.error || 'Failed'); setSaving(false); return; }
+        onAdded(); onClose();
+      } catch { setError('Network error'); }
+      setSaving(false);
+    } else {
+      if (allowedLanguages.length === 0) { setError('At least one language must be allowed'); return; }
+      const filledCases = testCases.filter(tc => tc.expectedOutput.trim());
+      if (filledCases.length === 0) { setError('At least one test case with expected output is required'); return; }
+      const starterCode = {};
+      if (starterJS.trim()) starterCode.javascript = starterJS;
+      if (starterPy.trim()) starterCode.python = starterPy;
+      setSaving(true);
+      try {
+        const res = await fetch('/api/admin/questions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quizId, title: title.trim(), content: content.trim(), type: 'CODING', starterCode: Object.keys(starterCode).length ? starterCode : null, testCases: filledCases, sectionId: sectionId || null, allowedLanguages, timeLimitSeconds: questionTimeLimit ? parseInt(questionTimeLimit) : null }),
+        });
+        const data = await res.json();
+        if (!res.ok) { setError(data.error || 'Failed'); setSaving(false); return; }
+        onAdded(); onClose();
+      } catch { setError('Network error'); }
+      setSaving(false);
+    }
   };
 
   return (
     <Modal title="Add Question" onClose={onClose} wide>
       <div className="space-y-4">
         {error && <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-apple px-4 py-2.5">{error}</div>}
+
+        {/* Type selector */}
+        <div className="flex gap-2 p-1 bg-apple-gray rounded-apple">
+          {['MCQ', 'CODING'].map(t => (
+            <button key={t} type="button" onClick={() => setType(t)}
+              className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${type === t ? 'bg-white shadow text-apple-text' : 'text-apple-text-3 hover:text-apple-text'}`}>
+              {t === 'MCQ' ? 'Multiple Choice' : 'Coding Challenge'}
+            </button>
+          ))}
+        </div>
+
         <div>
           <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Title / Short Label</label>
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. What is Bitcoin?" className="w-full px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all" />
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder={type === 'MCQ' ? 'e.g. What is Bitcoin?' : 'e.g. FizzBuzz'} className="w-full px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all" />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Question Content (Markdown)</label>
-          <textarea value={content} onChange={e => setContent(e.target.value)} rows={5} placeholder="Full question text, supports **markdown**..." className="w-full px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all resize-y font-mono" />
+          <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">{type === 'CODING' ? 'Problem Statement (Markdown)' : 'Question Content (Markdown)'}</label>
+          <textarea value={content} onChange={e => setContent(e.target.value)} rows={5} placeholder={type === 'CODING' ? 'Describe the problem, constraints, and examples...' : 'Full question text, supports **markdown**...'} className="w-full px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all resize-y font-mono" />
         </div>
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={() => setIsMultiAnswer(v => !v)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isMultiAnswer ? 'bg-apple-blue' : 'bg-apple-gray-3'}`}>
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isMultiAnswer ? 'translate-x-6' : 'translate-x-1'}`}/>
-          </button>
-          <span className="text-sm text-apple-text font-medium">Multi-answer</span>
-        </div>
-        {sections?.length > 0 && (
-          <div>
-            <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Section (optional)</label>
-            <select value={sectionId} onChange={e => setSectionId(e.target.value)} className="w-full px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all">
-              <option value="">No section</option>
-              {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </div>
-        )}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide">Options</label>
-            {options.length < 8 && <button onClick={() => setOptions(p => [...p, { content: '', isCorrect: false }])} className="text-xs font-semibold text-apple-blue hover:underline">+ Add option</button>}
-          </div>
-          <div className="space-y-2">
-            {options.map((opt, i) => (
-              <div key={i} className={`flex items-center gap-2 p-3 rounded-apple border transition-colors ${opt.isCorrect ? 'border-apple-green bg-green-50' : 'border-apple-gray-2 bg-white'}`}>
-                <span className="w-5 h-5 rounded-full bg-apple-gray-3 flex items-center justify-center text-xs font-bold text-apple-text-2 flex-shrink-0">{String.fromCharCode(65 + i)}</span>
-                <input value={opt.content} onChange={e => updateOption(i, 'content', e.target.value)} placeholder={`Option ${String.fromCharCode(65 + i)}`} className="flex-1 bg-transparent text-sm text-apple-text focus:outline-none placeholder-apple-text-3" />
-                <label className="flex items-center gap-1.5 flex-shrink-0 cursor-pointer">
-                  <input type={isMultiAnswer ? 'checkbox' : 'radio'} name="correct" checked={opt.isCorrect} onChange={e => updateOption(i, 'isCorrect', e.target.checked)} className="accent-apple-green" />
-                  <span className="text-xs text-apple-text-2">Correct</span>
-                </label>
-                {options.length > 2 && (
-                  <button onClick={() => setOptions(p => p.filter((_, idx) => idx !== i))} className="text-apple-text-3 hover:text-apple-red">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-                  </button>
-                )}
+
+        <div className="grid grid-cols-2 gap-3">
+          {sections?.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Section (optional)</label>
+              <div className="relative">
+                <select value={sectionId} onChange={e => setSectionId(e.target.value)} className="w-full appearance-none px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all pr-8">
+                  <option value="">No section</option>
+                  {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-apple-text-3 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
               </div>
-            ))}
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Time Limit (sec, optional)</label>
+            <input type="number" min="5" max="600" value={questionTimeLimit} onChange={e => setQuestionTimeLimit(e.target.value)} placeholder="e.g. 60 (overrides section/quiz)" className="w-full px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all" />
           </div>
         </div>
+
+        {type === 'MCQ' ? (
+          <>
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => setIsMultiAnswer(v => !v)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isMultiAnswer ? 'bg-apple-blue' : 'bg-apple-gray-3'}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isMultiAnswer ? 'translate-x-6' : 'translate-x-1'}`}/>
+              </button>
+              <span className="text-sm text-apple-text font-medium">Multi-answer</span>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide">Options</label>
+                {options.length < 8 && <button onClick={() => setOptions(p => [...p, { content: '', isCorrect: false }])} className="text-xs font-semibold text-apple-blue hover:underline">+ Add option</button>}
+              </div>
+              <div className="space-y-2">
+                {options.map((opt, i) => (
+                  <div key={i} className={`flex items-center gap-2 p-3 rounded-apple border transition-colors ${opt.isCorrect ? 'border-apple-green bg-green-50' : 'border-apple-gray-2 bg-white'}`}>
+                    <span className="w-5 h-5 rounded-full bg-apple-gray-3 flex items-center justify-center text-xs font-bold text-apple-text-2 flex-shrink-0">{String.fromCharCode(65 + i)}</span>
+                    <input value={opt.content} onChange={e => updateOption(i, 'content', e.target.value)} placeholder={`Option ${String.fromCharCode(65 + i)}`} className="flex-1 bg-transparent text-sm text-apple-text focus:outline-none placeholder-apple-text-3" />
+                    <label className="flex items-center gap-1.5 flex-shrink-0 cursor-pointer">
+                      <input type={isMultiAnswer ? 'checkbox' : 'radio'} name="correct" checked={opt.isCorrect} onChange={e => updateOption(i, 'isCorrect', e.target.checked)} className="accent-apple-green" />
+                      <span className="text-xs text-apple-text-2">Correct</span>
+                    </label>
+                    {options.length > 2 && (
+                      <button onClick={() => setOptions(p => p.filter((_, idx) => idx !== i))} className="text-apple-text-3 hover:text-apple-red">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Allowed languages */}
+            <div>
+              <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Allowed Languages</label>
+              <div className="flex gap-4">
+                {[{ value: 'javascript', label: 'JavaScript' }, { value: 'python', label: 'Python' }].map(lang => (
+                  <label key={lang.value} className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={allowedLanguages.includes(lang.value)} onChange={() => toggleLanguage(lang.value)} className="accent-apple-blue" />
+                    <span className="text-sm text-apple-text">{lang.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Starter code */}
+            <div>
+              <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Starter Code (optional)</label>
+              <CodeEditor language={starterLang} onLanguageChange={setStarterLang} value={starterLang === 'javascript' ? starterJS : starterPy} onChange={v => starterLang === 'javascript' ? setStarterJS(v || '') : setStarterPy(v || '')} height="180px" allowedLanguages={allowedLanguages} />
+              <p className="text-xs text-apple-text-3 mt-1">Contestants will see this pre-filled. Set per-language by switching tabs.</p>
+            </div>
+
+            {/* Test cases */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide">Test Cases</label>
+                <button onClick={() => setTestCases(p => [...p, { input: '', expectedOutput: '', isHidden: false }])} className="text-xs font-semibold text-apple-blue hover:underline">+ Add case</button>
+              </div>
+              <div className="space-y-3">
+                {testCases.map((tc, i) => (
+                  <div key={i} className={`p-3 rounded-apple border ${tc.isHidden ? 'border-orange-200 bg-orange-50' : 'border-apple-gray-2 bg-white'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-apple-text-2">Test {i + 1}</span>
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input type="checkbox" checked={tc.isHidden} onChange={e => updateTestCase(i, 'isHidden', e.target.checked)} className="accent-orange-500" />
+                          <span className="text-xs text-apple-text-2">Hidden</span>
+                        </label>
+                        {testCases.length > 1 && (
+                          <button onClick={() => setTestCases(p => p.filter((_, idx) => idx !== i))} className="text-apple-text-3 hover:text-apple-red">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-apple-text-3 mb-1">Input (stdin)</label>
+                        <textarea value={tc.input} onChange={e => updateTestCase(i, 'input', e.target.value)} rows={2} placeholder="(empty if no input)" className="w-full px-2 py-1.5 bg-apple-gray border border-apple-gray-3 rounded text-xs font-mono text-apple-text focus:outline-none focus:ring-1 focus:ring-apple-blue resize-none" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-apple-text-3 mb-1">Expected Output *</label>
+                        <textarea value={tc.expectedOutput} onChange={e => updateTestCase(i, 'expectedOutput', e.target.value)} rows={2} placeholder="Expected stdout output" className="w-full px-2 py-1.5 bg-apple-gray border border-apple-gray-3 rounded text-xs font-mono text-apple-text focus:outline-none focus:ring-1 focus:ring-apple-blue resize-none" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-apple-text-3 mt-1">Hidden tests are used for scoring but not shown to contestants.</p>
+            </div>
+          </>
+        )}
+
         <div className="flex justify-end gap-3 pt-2">
           <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-apple-text-2 bg-apple-gray border border-apple-gray-3 rounded-apple hover:bg-apple-gray-2 transition-colors">Cancel</button>
           <button onClick={submit} disabled={saving} className="px-5 py-2 text-sm font-semibold text-white bg-apple-blue rounded-apple hover:bg-blue-600 transition-colors disabled:opacity-50 flex items-center gap-2">
@@ -176,6 +320,48 @@ function AddQuestionModal({ quizId, sections, onClose, onAdded }) {
 /* ════════════════════════════════════════
    UPLOAD QUESTIONS CSV MODAL
    ════════════════════════════════════════ */
+function DropZone({ file, onFile, accept = '.csv,text/csv' }) {
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef(null);
+  const onDrop = (e) => {
+    e.preventDefault(); setDragging(false);
+    const f = e.dataTransfer.files[0];
+    if (f) onFile(f);
+  };
+  return (
+    <div
+      onClick={() => inputRef.current?.click()}
+      onDragOver={e => { e.preventDefault(); setDragging(true); }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={onDrop}
+      className={`relative flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-8 cursor-pointer transition-all ${dragging ? 'border-apple-blue bg-blue-50 scale-[1.01]' : file ? 'border-apple-green bg-green-50/60' : 'border-apple-gray-3 bg-apple-gray/40 hover:border-apple-blue hover:bg-blue-50/40'}`}
+    >
+      <input ref={inputRef} type="file" accept={accept} className="hidden" onChange={e => onFile(e.target.files[0])} />
+      {file ? (
+        <>
+          <div className="w-12 h-12 rounded-full bg-apple-green/15 flex items-center justify-center">
+            <svg className="w-6 h-6 text-apple-green" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-semibold text-apple-text">{file.name}</p>
+            <p className="text-xs text-apple-text-3 mt-0.5">{(file.size / 1024).toFixed(1)} KB · Click to change</p>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="w-12 h-12 rounded-full bg-apple-blue/10 flex items-center justify-center">
+            <svg className="w-6 h-6 text-apple-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-semibold text-apple-text">Drop your CSV here</p>
+            <p className="text-xs text-apple-text-3 mt-0.5">or click to browse files</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function UploadQuestionsModal({ quizId, onClose, onUploaded }) {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -197,27 +383,54 @@ function UploadQuestionsModal({ quizId, onClose, onUploaded }) {
     setUploading(false);
   };
 
+  const downloadTemplate = () => {
+    const csv = `Section,Question,isMultiAnswer,Option1,Option2,Option3,Option4,CorrectAnswers\n"Round 1","What is BTC?",false,"Digital gold","A stock","A bond","CBDC","1"\n"Round 1","Pick all correct options",true,"opt1","opt2","opt3","opt4","1,3"\n,"No section question",false,"A","B","C","D","2"\n`;
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'questions_template.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <Modal title="Upload Questions CSV" onClose={onClose}>
+    <Modal title="Import Questions from CSV" onClose={onClose}>
       <div className="space-y-4">
         {error && <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-apple px-4 py-2.5">{error}</div>}
         {result ? (
-          <div className="bg-green-50 border border-green-200 rounded-apple p-4">
-            <p className="text-apple-green font-semibold text-sm">Uploaded {result.created} question{result.created !== 1 ? 's' : ''}.</p>
-            <button onClick={onClose} className="mt-3 text-sm font-semibold text-apple-blue">Done</button>
+          <div className="flex flex-col items-center gap-4 py-6">
+            <div className="w-16 h-16 rounded-full bg-apple-green/15 flex items-center justify-center">
+              <svg className="w-8 h-8 text-apple-green" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <div className="text-center">
+              <p className="text-base font-bold text-apple-text">Import Complete</p>
+              <p className="text-sm text-apple-text-2 mt-1">{result.created} question{result.created !== 1 ? 's' : ''} imported successfully</p>
+            </div>
+            <button onClick={onClose} className="px-6 py-2 text-sm font-semibold text-white bg-apple-blue rounded-apple hover:bg-blue-600 transition-colors">Done</button>
           </div>
         ) : (
           <>
-            <div className="bg-apple-gray border border-apple-gray-2 rounded-apple p-4">
-              <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">CSV Format</p>
-              <pre className="text-xs text-apple-text font-mono overflow-x-auto">{`Section,Question,isMultiAnswer,Option1,Option2,Option3,Option4,CorrectAnswers\n"Round 1","What is BTC?",false,"Digital gold","A stock","A bond","CBDC","1"\n"Round 1","Pick all...",true,"opt1","opt2","opt3","opt4","1,3"\n,"No section Q",false,"A","B","C","D","2"`}</pre>
-              <p className="text-xs text-apple-text-3 mt-1">Section column is optional — leave blank for no section.</p>
-            </div>
-            <input type="file" accept=".csv,text/csv" onChange={e => setFile(e.target.files[0])} className="w-full text-sm text-apple-text-2 file:mr-3 file:py-2 file:px-4 file:rounded-apple file:border-0 file:text-sm file:font-semibold file:bg-apple-blue file:text-white hover:file:bg-blue-600 cursor-pointer" />
-            <div className="flex justify-end gap-3">
+            <details className="group">
+              <summary className="flex items-center justify-between cursor-pointer list-none bg-apple-gray/60 border border-apple-gray-2 rounded-apple px-4 py-3 hover:bg-apple-gray transition-colors">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-apple-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  <span className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide">CSV Format Guide</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={e => { e.preventDefault(); downloadTemplate(); }} className="text-xs font-semibold text-apple-blue hover:underline">Download Template</button>
+                  <svg className="w-4 h-4 text-apple-text-3 group-open:rotate-180 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
+                </div>
+              </summary>
+              <div className="mt-2 bg-[#1e1e1e] rounded-apple overflow-hidden">
+                <pre className="text-xs text-green-400 font-mono p-4 overflow-x-auto leading-relaxed">{`Section,Question,isMultiAnswer,Option1,Option2,Option3,Option4,CorrectAnswers\n"Round 1","What is BTC?",false,"Digital gold","A stock","A bond","CBDC","1"\n"Round 1","Multi-select Q",true,"opt1","opt2","opt3","opt4","1,3"\n,"No section",false,"A","B","C","D","2"`}</pre>
+              </div>
+              <p className="text-xs text-apple-text-3 mt-1.5 px-1">Section column is optional — leave blank for no section.</p>
+            </details>
+
+            <DropZone file={file} onFile={setFile} />
+
+            <div className="flex justify-end gap-3 pt-1">
               <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-apple-text-2 bg-apple-gray border border-apple-gray-3 rounded-apple hover:bg-apple-gray-2 transition-colors">Cancel</button>
               <button onClick={upload} disabled={!file || uploading} className="px-5 py-2 text-sm font-semibold text-white bg-apple-blue rounded-apple hover:bg-blue-600 transition-colors disabled:opacity-50 flex items-center gap-2">
-                {uploading && <Spinner size={4} />}{uploading ? 'Uploading…' : 'Upload'}
+                {uploading ? <><Spinner size={4} />Importing…</> : <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>Import Questions</>}
               </button>
             </div>
           </>
@@ -304,19 +517,29 @@ function ResponsesModal({ question, onClose }) {
     fetch(`/api/admin/questions/${question.id}/answers`).then(r => r.json()).then(setData).catch(() => {});
   }, [question.id]);
 
+  const isCoding = question.type === 'CODING';
+
   return (
     <Modal title={`Responses: ${question.title}`} onClose={onClose} wide>
       {!data ? (
         <div className="flex justify-center py-8"><Spinner size={8} /></div>
       ) : (
         <div className="space-y-4">
-          <AnswerChart
-            options={data.options || []}
-            optionStats={data.stats || {}}
-            totalAnswered={data.total || 0}
-            correctOptions={(data.options || []).filter(o => o.isCorrect).map(o => o.id)}
-            selectedOptions={[]}
-          />
+          {!isCoding && (
+            <AnswerChart
+              options={data.options || []}
+              optionStats={data.stats || {}}
+              totalAnswered={data.total || 0}
+              correctOptions={(data.options || []).filter(o => o.isCorrect).map(o => o.id)}
+              selectedOptions={[]}
+            />
+          )}
+          {isCoding && data.total > 0 && (
+            <div className="bg-apple-gray border border-apple-gray-2 rounded-apple p-4">
+              <p className="text-sm font-semibold text-apple-text mb-1">{data.total} submission{data.total !== 1 ? 's' : ''}</p>
+              <p className="text-xs text-apple-text-2">{data.answers?.filter(a => a.isCorrect).length || 0} solved all test cases</p>
+            </div>
+          )}
           {data.answers?.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">Team Answers ({data.total})</p>
@@ -326,10 +549,16 @@ function ResponsesModal({ question, onClose }) {
                     <div className="flex items-center gap-2">
                       {r.rank && <span className="text-xs text-apple-text-3 font-mono">#{r.rank}</span>}
                       <span className="font-medium text-apple-text">{r.teamName}</span>
+                      {isCoding && r.language && <span className="text-xs text-apple-text-3 bg-apple-gray px-1.5 py-0.5 rounded font-mono">{r.language}</span>}
                     </div>
-                    <span className={`text-xs font-bold ${r.isCorrect ? 'text-apple-green' : 'text-apple-red'}`}>
-                      {r.isCorrect ? `+${r.score}` : '0'}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      {isCoding && r.testsTotal > 0 && (
+                        <span className="text-xs text-apple-text-2">{r.testsPassed}/{r.testsTotal} tests</span>
+                      )}
+                      <span className={`text-xs font-bold ${r.isCorrect ? 'text-apple-green' : 'text-apple-red'}`}>
+                        {r.score > 0 ? `+${r.score}` : '0'}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -416,17 +645,19 @@ function LiveScoresTab() {
    ════════════════════════════════════════ */
 function ManageSectionsModal({ quizId, sections, onClose, onChange }) {
   const [newName, setNewName] = useState('');
+  const [newTimeLimit, setNewTimeLimit] = useState('');
   const [adding, setAdding] = useState(false);
   const [renamingId, setRenamingId] = useState(null);
   const [renamingValue, setRenamingValue] = useState('');
+  const [timeLimitValue, setTimeLimitValue] = useState('');
   const [busy, setBusy] = useState({});
 
   const addSection = async () => {
     if (!newName.trim()) return;
     setAdding(true);
     try {
-      await fetch('/api/admin/sections', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quizId, name: newName.trim() }) });
-      setNewName('');
+      await fetch('/api/admin/sections', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quizId, name: newName.trim(), timeLimitSeconds: newTimeLimit ? parseInt(newTimeLimit) : null }) });
+      setNewName(''); setNewTimeLimit('');
       onChange();
     } catch {}
     setAdding(false);
@@ -436,11 +667,20 @@ function ManageSectionsModal({ quizId, sections, onClose, onChange }) {
     if (!renamingValue.trim()) return;
     setBusy(prev => ({ ...prev, [id]: true }));
     try {
-      await fetch(`/api/admin/sections/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: renamingValue.trim() }) });
+      await fetch(`/api/admin/sections/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: renamingValue.trim(), timeLimitSeconds: timeLimitValue ? parseInt(timeLimitValue) : null }) });
       setRenamingId(null);
       onChange();
     } catch {}
     setBusy(prev => ({ ...prev, [id]: false }));
+  };
+
+  const releaseAllInSection = async (id, release) => {
+    setBusy(prev => ({ ...prev, [`release-${id}`]: true }));
+    try {
+      await fetch(`/api/admin/sections/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ releaseAll: release }) });
+      onChange();
+    } catch {}
+    setBusy(prev => ({ ...prev, [`release-${id}`]: false }));
   };
 
   const deleteSection = async (id, name) => {
@@ -463,16 +703,23 @@ function ManageSectionsModal({ quizId, sections, onClose, onChange }) {
             {sections.map(s => (
               <div key={s.id} className="flex items-center gap-2 p-3 border border-apple-gray-2 rounded-apple bg-white">
                 {renamingId === s.id ? (
-                  <>
-                    <input autoFocus value={renamingValue} onChange={e => setRenamingValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') renameSection(s.id); if (e.key === 'Escape') setRenamingId(null); }} className="flex-1 text-sm px-2 py-1 border border-apple-gray-3 rounded-apple focus:outline-none focus:ring-2 focus:ring-apple-blue" />
-                    <button onClick={() => renameSection(s.id)} disabled={busy[s.id]} className="text-xs font-semibold text-apple-blue hover:underline">Save</button>
-                    <button onClick={() => setRenamingId(null)} className="text-xs text-apple-text-3 hover:text-apple-text">Cancel</button>
-                  </>
+                  <div className="flex-1 space-y-2">
+                    <input autoFocus value={renamingValue} onChange={e => setRenamingValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') renameSection(s.id); if (e.key === 'Escape') setRenamingId(null); }} className="w-full text-sm px-2 py-1.5 border border-apple-gray-3 rounded-apple focus:outline-none focus:ring-2 focus:ring-apple-blue" placeholder="Section name" />
+                    <div className="flex items-center gap-2">
+                      <input type="number" value={timeLimitValue} onChange={e => setTimeLimitValue(e.target.value)} min="5" max="600" placeholder="Time limit (sec, optional)" className="flex-1 text-xs px-2 py-1.5 border border-apple-gray-3 rounded-apple focus:outline-none focus:ring-1 focus:ring-apple-blue" />
+                      <button onClick={() => renameSection(s.id)} disabled={busy[s.id]} className="text-xs font-semibold text-white bg-apple-blue px-3 py-1.5 rounded-apple hover:bg-blue-600 transition-colors">Save</button>
+                      <button onClick={() => setRenamingId(null)} className="text-xs text-apple-text-3 hover:text-apple-text">Cancel</button>
+                    </div>
+                  </div>
                 ) : (
                   <>
-                    <span className="flex-1 text-sm font-medium text-apple-text">{s.name}</span>
-                    <span className="text-xs text-apple-text-3">{s.questionCount} q</span>
-                    <button onClick={() => { setRenamingId(s.id); setRenamingValue(s.name); }} className="p-1 text-apple-text-3 hover:text-apple-blue transition-colors" title="Rename">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-apple-text block">{s.name}</span>
+                      <span className="text-xs text-apple-text-3">{s.questionCount} q{s.timeLimitSeconds ? ` · ${s.timeLimitSeconds}s limit` : ''}</span>
+                    </div>
+                    <button onClick={() => releaseAllInSection(s.id, true)} disabled={busy[`release-${s.id}`]} className="text-xs font-semibold text-apple-green hover:underline whitespace-nowrap" title="Release all questions in section">Release All</button>
+                    <button onClick={() => releaseAllInSection(s.id, false)} disabled={busy[`release-${s.id}`]} className="text-xs font-semibold text-apple-text-3 hover:text-apple-red hover:underline whitespace-nowrap" title="Unrelease all">Hide All</button>
+                    <button onClick={() => { setRenamingId(s.id); setRenamingValue(s.name); setTimeLimitValue(s.timeLimitSeconds?.toString() || ''); }} className="p-1 text-apple-text-3 hover:text-apple-blue transition-colors" title="Rename">
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                     </button>
                     <button onClick={() => deleteSection(s.id, s.name)} disabled={busy[`del-${s.id}`]} className="p-1 text-apple-text-3 hover:text-apple-red transition-colors" title="Delete section">
@@ -484,10 +731,193 @@ function ManageSectionsModal({ quizId, sections, onClose, onChange }) {
             ))}
           </div>
         )}
-        <div className="flex gap-2 pt-2 border-t border-apple-gray-2">
-          <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSection()} placeholder="New section name…" className="flex-1 px-3 py-2 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all" />
-          <button onClick={addSection} disabled={!newName.trim() || adding} className="px-4 py-2 text-sm font-semibold text-white bg-apple-blue rounded-apple hover:bg-blue-600 transition-colors disabled:opacity-50 flex items-center gap-1.5">
-            {adding && <Spinner size={3} />}Add
+        <div className="pt-2 border-t border-apple-gray-2 space-y-2">
+          <div className="flex gap-2">
+            <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSection()} placeholder="New section name…" className="flex-1 px-3 py-2 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all" />
+            <input type="number" min="5" max="600" value={newTimeLimit} onChange={e => setNewTimeLimit(e.target.value)} placeholder="Sec" className="w-20 px-3 py-2 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all" title="Section time limit (seconds)" />
+            <button onClick={addSection} disabled={!newName.trim() || adding} className="px-4 py-2 text-sm font-semibold text-white bg-apple-blue rounded-apple hover:bg-blue-600 transition-colors disabled:opacity-50 flex items-center gap-1.5">
+              {adding && <Spinner size={3} />}Add
+            </button>
+          </div>
+          <p className="text-xs text-apple-text-3">Optional section time limit in seconds (overrides quiz default for questions in this section)</p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ════════════════════════════════════════
+   EDIT QUESTION MODAL
+   ════════════════════════════════════════ */
+function EditQuestionModal({ question, sections, onClose, onSaved }) {
+  const [title, setTitle] = useState(question.title);
+  const [content, setContent] = useState(question.content);
+  const [sectionId, setSectionId] = useState(question.sectionId?.toString() || '');
+  const [timeLimitSeconds, setTimeLimitSeconds] = useState(question.timeLimitSeconds?.toString() || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  // MCQ
+  const [isMultiAnswer, setIsMultiAnswer] = useState(question.isMultiAnswer);
+  const [options, setOptions] = useState(question.options?.length ? question.options.map(o => ({ content: o.content, isCorrect: o.isCorrect })) : [{ content: '', isCorrect: false }, { content: '', isCorrect: false }]);
+
+  // Coding
+  const [starterLang, setStarterLang] = useState('javascript');
+  const starterCodeObj = question.starterCode ? JSON.parse(question.starterCode) : {};
+  const [starterJS, setStarterJS] = useState(starterCodeObj.javascript || '');
+  const [starterPy, setStarterPy] = useState(starterCodeObj.python || '');
+  const [allowedLanguages, setAllowedLanguages] = useState(question.allowedLanguages || ['javascript', 'python']);
+  const [testCases, setTestCases] = useState(question.testCases?.length ? question.testCases.map(tc => ({ input: tc.input, expectedOutput: tc.expectedOutput, isHidden: tc.isHidden })) : [{ input: '', expectedOutput: '', isHidden: false }]);
+
+  const isCoding = question.type === 'CODING';
+
+  const updateOption = (i, field, value) => {
+    setOptions(prev => {
+      const next = [...prev];
+      if (field === 'isCorrect' && !isMultiAnswer) next.forEach((o, idx) => { next[idx] = { ...o, isCorrect: idx === i ? value : false }; });
+      else next[i] = { ...next[i], [field]: value };
+      return next;
+    });
+  };
+
+  const updateTestCase = (i, field, value) => setTestCases(prev => { const next = [...prev]; next[i] = { ...next[i], [field]: value }; return next; });
+
+  const toggleLanguage = (lang) => setAllowedLanguages(prev => prev.includes(lang) ? prev.filter(l => l !== lang) : [...prev, lang]);
+
+  const submit = async () => {
+    setError('');
+    if (!title.trim()) { setError('Title is required'); return; }
+    if (!content.trim()) { setError('Content is required'); return; }
+    if (!isCoding) {
+      const filled = options.filter(o => o.content.trim());
+      if (filled.length < 2) { setError('At least 2 options required'); return; }
+      if (!filled.some(o => o.isCorrect)) { setError('At least one correct answer required'); return; }
+      setSaving(true);
+      try {
+        const res = await fetch(`/api/admin/questions/${question.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title.trim(), content: content.trim(), isMultiAnswer, options: filled, sectionId: sectionId ? parseInt(sectionId) : null, timeLimitSeconds: timeLimitSeconds ? parseInt(timeLimitSeconds) : null }) });
+        const data = await res.json();
+        if (!res.ok) { setError(data.error || 'Failed'); setSaving(false); return; }
+        onSaved(); onClose();
+      } catch { setError('Network error'); }
+    } else {
+      if (allowedLanguages.length === 0) { setError('At least one language must be allowed'); return; }
+      const filledCases = testCases.filter(tc => tc.expectedOutput.trim());
+      if (filledCases.length === 0) { setError('At least one test case required'); return; }
+      const starterCode = {};
+      if (starterJS.trim()) starterCode.javascript = starterJS;
+      if (starterPy.trim()) starterCode.python = starterPy;
+      setSaving(true);
+      try {
+        const res = await fetch(`/api/admin/questions/${question.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title.trim(), content: content.trim(), starterCode: Object.keys(starterCode).length ? starterCode : null, allowedLanguages, testCases: filledCases, sectionId: sectionId ? parseInt(sectionId) : null, timeLimitSeconds: timeLimitSeconds ? parseInt(timeLimitSeconds) : null }) });
+        const data = await res.json();
+        if (!res.ok) { setError(data.error || 'Failed'); setSaving(false); return; }
+        onSaved(); onClose();
+      } catch { setError('Network error'); }
+    }
+    setSaving(false);
+  };
+
+  return (
+    <Modal title={`Edit: ${question.title}`} onClose={onClose} wide>
+      <div className="space-y-4">
+        {error && <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-apple px-4 py-2.5">{error}</div>}
+        <div>
+          <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Title</label>
+          <input value={title} onChange={e => setTitle(e.target.value)} className="w-full px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">{isCoding ? 'Problem Statement (Markdown)' : 'Content (Markdown)'}</label>
+          <textarea value={content} onChange={e => setContent(e.target.value)} rows={5} className="w-full px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all resize-y font-mono" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {sections?.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Section</label>
+              <div className="relative">
+                <select value={sectionId} onChange={e => setSectionId(e.target.value)} className="w-full appearance-none px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all pr-8">
+                  <option value="">No section</option>
+                  {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-apple-text-3 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
+              </div>
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Time Limit (sec)</label>
+            <input type="number" min="5" max="600" value={timeLimitSeconds} onChange={e => setTimeLimitSeconds(e.target.value)} placeholder="e.g. 60 (optional)" className="w-full px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all" />
+          </div>
+        </div>
+
+        {!isCoding ? (
+          <>
+            <div className="flex items-center gap-3">
+              <button type="button" onClick={() => setIsMultiAnswer(v => !v)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isMultiAnswer ? 'bg-apple-blue' : 'bg-apple-gray-3'}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${isMultiAnswer ? 'translate-x-6' : 'translate-x-1'}`}/>
+              </button>
+              <span className="text-sm text-apple-text font-medium">Multi-answer</span>
+            </div>
+            <div className="space-y-2">
+              {options.map((opt, i) => (
+                <div key={i} className={`flex items-center gap-2 p-3 rounded-apple border transition-colors ${opt.isCorrect ? 'border-apple-green bg-green-50' : 'border-apple-gray-2 bg-white'}`}>
+                  <span className="w-5 h-5 rounded-full bg-apple-gray-3 flex items-center justify-center text-xs font-bold text-apple-text-2 flex-shrink-0">{String.fromCharCode(65 + i)}</span>
+                  <input value={opt.content} onChange={e => updateOption(i, 'content', e.target.value)} className="flex-1 bg-transparent text-sm text-apple-text focus:outline-none" />
+                  <label className="flex items-center gap-1.5 flex-shrink-0 cursor-pointer">
+                    <input type={isMultiAnswer ? 'checkbox' : 'radio'} name="edit-correct" checked={opt.isCorrect} onChange={e => updateOption(i, 'isCorrect', e.target.checked)} className="accent-apple-green" />
+                    <span className="text-xs text-apple-text-2">Correct</span>
+                  </label>
+                  {options.length > 2 && <button onClick={() => setOptions(p => p.filter((_, idx) => idx !== i))} className="text-apple-text-3 hover:text-apple-red"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>}
+                </div>
+              ))}
+              {options.length < 8 && <button onClick={() => setOptions(p => [...p, { content: '', isCorrect: false }])} className="text-xs font-semibold text-apple-blue hover:underline">+ Add option</button>}
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Allowed Languages</label>
+              <div className="flex gap-4">
+                {[{ value: 'javascript', label: 'JavaScript' }, { value: 'python', label: 'Python' }].map(lang => (
+                  <label key={lang.value} className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={allowedLanguages.includes(lang.value)} onChange={() => toggleLanguage(lang.value)} className="accent-apple-blue" />
+                    <span className="text-sm text-apple-text">{lang.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Starter Code (optional)</label>
+              <CodeEditor language={starterLang} onLanguageChange={setStarterLang} value={starterLang === 'javascript' ? starterJS : starterPy} onChange={v => starterLang === 'javascript' ? setStarterJS(v || '') : setStarterPy(v || '')} height="160px" allowedLanguages={allowedLanguages} />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide">Test Cases</label>
+                <button onClick={() => setTestCases(p => [...p, { input: '', expectedOutput: '', isHidden: false }])} className="text-xs font-semibold text-apple-blue hover:underline">+ Add case</button>
+              </div>
+              <div className="space-y-3">
+                {testCases.map((tc, i) => (
+                  <div key={i} className={`p-3 rounded-apple border ${tc.isHidden ? 'border-orange-200 bg-orange-50' : 'border-apple-gray-2 bg-white'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-apple-text-2">Test {i + 1}</span>
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={tc.isHidden} onChange={e => updateTestCase(i, 'isHidden', e.target.checked)} className="accent-orange-500" /><span className="text-xs text-apple-text-2">Hidden</span></label>
+                        {testCases.length > 1 && <button onClick={() => setTestCases(p => p.filter((_, idx) => idx !== i))} className="text-apple-text-3 hover:text-apple-red"><svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg></button>}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><label className="block text-xs text-apple-text-3 mb-1">Input (stdin)</label><textarea value={tc.input} onChange={e => updateTestCase(i, 'input', e.target.value)} rows={2} className="w-full px-2 py-1.5 bg-apple-gray border border-apple-gray-3 rounded text-xs font-mono text-apple-text focus:outline-none focus:ring-1 focus:ring-apple-blue resize-none" /></div>
+                      <div><label className="block text-xs text-apple-text-3 mb-1">Expected Output *</label><textarea value={tc.expectedOutput} onChange={e => updateTestCase(i, 'expectedOutput', e.target.value)} rows={2} className="w-full px-2 py-1.5 bg-apple-gray border border-apple-gray-3 rounded text-xs font-mono text-apple-text focus:outline-none focus:ring-1 focus:ring-apple-blue resize-none" /></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="flex justify-end gap-3 pt-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-apple-text-2 bg-apple-gray border border-apple-gray-3 rounded-apple hover:bg-apple-gray-2 transition-colors">Cancel</button>
+          <button onClick={submit} disabled={saving} className="px-5 py-2 text-sm font-semibold text-white bg-apple-blue rounded-apple hover:bg-blue-600 transition-colors disabled:opacity-50 flex items-center gap-2">
+            {saving && <Spinner size={4} />}{saving ? 'Saving…' : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -505,10 +935,12 @@ function QuizQuestionsPanel({ quiz, onBack }) {
   const [expanded, setExpanded] = useState(null);
   const [toggling, setToggling] = useState({});
   const [deleting, setDeleting] = useState({});
+  const [bulkRelease, setBulkRelease] = useState({});
   const [showAdd, setShowAdd] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [showSections, setShowSections] = useState(false);
   const [responsesQ, setResponsesQ] = useState(null);
+  const [editQ, setEditQ] = useState(null);
 
   const loadAll = useCallback(async () => {
     try {
@@ -549,12 +981,25 @@ function QuizQuestionsPanel({ quiz, onBack }) {
     setDeleting(prev => ({ ...prev, [q.id]: false }));
   };
 
+  const bulkReleaseSection = async (sectionId, release) => {
+    setBulkRelease(prev => ({ ...prev, [sectionId]: true }));
+    try {
+      await fetch(`/api/admin/sections/${sectionId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ releaseAll: release }),
+      });
+      loadAll();
+    } catch {}
+    setBulkRelease(prev => ({ ...prev, [sectionId]: false }));
+  };
+
   return (
     <div>
       {showAdd && <AddQuestionModal quizId={quiz.id} sections={sections} onClose={() => setShowAdd(false)} onAdded={loadAll} />}
       {showUpload && <UploadQuestionsModal quizId={quiz.id} onClose={() => setShowUpload(false)} onUploaded={loadAll} />}
       {showSections && <ManageSectionsModal quizId={quiz.id} sections={sections} onClose={() => setShowSections(false)} onChange={loadAll} />}
       {responsesQ && <ResponsesModal question={responsesQ} onClose={() => setResponsesQ(null)} />}
+      {editQ && <EditQuestionModal question={editQ} sections={sections} onClose={() => setEditQ(null)} onSaved={loadAll} />}
 
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 mb-6">
@@ -564,7 +1009,8 @@ function QuizQuestionsPanel({ quiz, onBack }) {
         </button>
         <span className="text-apple-text-3">/</span>
         <span className="text-sm font-semibold text-apple-text">{quiz.title}</span>
-        {quiz.isActive && <span className="text-xs font-semibold text-apple-green bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">Active</span>}
+        {quiz.isActive && !quiz.isDisabled && <span className="text-xs font-semibold text-apple-green bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">Active</span>}
+        {quiz.isDisabled && <span className="text-xs font-semibold text-apple-red bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">Disabled</span>}
       </div>
 
       <div className="flex items-center justify-between mb-6">
@@ -622,7 +1068,9 @@ function QuizQuestionsPanel({ quiz, onBack }) {
                   <p className="text-sm font-semibold text-apple-text truncate">{q.title}</p>
                   <div className="flex items-center gap-2 mt-0.5">
                     {q.isReleased ? <span className="text-xs font-semibold text-apple-green">Released</span> : <span className="text-xs text-apple-text-3">Unreleased</span>}
-                    {q.isMultiAnswer && <span className="text-xs bg-purple-100 text-purple-600 font-semibold px-1.5 py-0.5 rounded-full">Multi</span>}
+                    {q.type === 'CODING' && <span className="text-xs bg-blue-100 text-apple-blue font-semibold px-1.5 py-0.5 rounded-full">Coding</span>}
+                    {q.type !== 'CODING' && q.isMultiAnswer && <span className="text-xs bg-purple-100 text-purple-600 font-semibold px-1.5 py-0.5 rounded-full">Multi</span>}
+                    {q.timeLimitSeconds && <span className="text-xs bg-orange-50 text-orange-600 font-semibold px-1.5 py-0.5 rounded-full">{q.timeLimitSeconds}s</span>}
                     <span className="text-xs text-apple-text-3">{q.stats?.attempted || 0} responses</span>
                   </div>
                 </div>
@@ -630,6 +1078,11 @@ function QuizQuestionsPanel({ quiz, onBack }) {
                   <button onClick={() => toggleRelease(q)} disabled={toggling[q.id]} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${q.isReleased ? 'bg-apple-green' : 'bg-apple-gray-3'} ${toggling[q.id] ? 'opacity-50' : ''}`}>
                     <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${q.isReleased ? 'translate-x-4' : 'translate-x-0.5'}`}/>
                   </button>
+                  {!q.isReleased && (
+                    <button onClick={() => setEditQ(q)} className="p-1.5 text-apple-text-3 hover:text-apple-blue transition-colors" title="Edit question">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    </button>
+                  )}
                   <button onClick={() => setResponsesQ(q)} className="p-1.5 text-apple-text-3 hover:text-apple-blue transition-colors" title="View responses">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
                   </button>
@@ -645,19 +1098,39 @@ function QuizQuestionsPanel({ quiz, onBack }) {
                     <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">Content</p>
                     <div className="bg-white border border-apple-gray-2 rounded-apple p-4 md-content text-sm text-apple-text" dangerouslySetInnerHTML={{ __html: renderMd(q.content) }} />
                   </div>
-                  {q.options?.length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">Options</p>
-                      <div className="space-y-2">
-                        {q.options.map((opt, oi) => (
-                          <div key={opt.id} className={`flex items-start gap-3 rounded-apple p-3 border text-sm ${opt.isCorrect ? 'border-apple-green bg-green-50' : 'border-apple-gray-2 bg-white'}`}>
-                            <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white ${opt.isCorrect ? 'bg-apple-green' : 'bg-apple-gray-4'}`}>{String.fromCharCode(65 + oi)}</span>
-                            <span className={opt.isCorrect ? 'text-green-800 font-medium' : 'text-apple-text'}>{opt.content}</span>
-                            {opt.isCorrect && <span className="ml-auto text-xs font-semibold text-apple-green flex-shrink-0">✓ Correct</span>}
-                          </div>
-                        ))}
+                  {q.type === 'CODING' ? (
+                    q.testCases?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">Test Cases ({q.testCases.length})</p>
+                        <div className="space-y-2">
+                          {q.testCases.map((tc, ti) => (
+                            <div key={tc.id} className={`rounded-apple border p-3 text-xs font-mono ${tc.isHidden ? 'border-orange-200 bg-orange-50' : 'border-apple-gray-2 bg-white'}`}>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-bold text-apple-text-2">Test {ti + 1}</span>
+                                {tc.isHidden && <span className="text-orange-600 font-semibold">Hidden</span>}
+                              </div>
+                              {tc.input && <div><span className="text-apple-text-3">In: </span><span className="whitespace-pre-wrap text-apple-text">{tc.input}</span></div>}
+                              <div><span className="text-apple-text-3">Expected: </span><span className="whitespace-pre-wrap text-apple-text">{tc.expectedOutput}</span></div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )
+                  ) : (
+                    q.options?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">Options</p>
+                        <div className="space-y-2">
+                          {q.options.map((opt, oi) => (
+                            <div key={opt.id} className={`flex items-start gap-3 rounded-apple p-3 border text-sm ${opt.isCorrect ? 'border-apple-green bg-green-50' : 'border-apple-gray-2 bg-white'}`}>
+                              <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white ${opt.isCorrect ? 'bg-apple-green' : 'bg-apple-gray-4'}`}>{String.fromCharCode(65 + oi)}</span>
+                              <span className={opt.isCorrect ? 'text-green-800 font-medium' : 'text-apple-text'}>{opt.content}</span>
+                              {opt.isCorrect && <span className="ml-auto text-xs font-semibold text-apple-green flex-shrink-0">✓ Correct</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
                   )}
                 </div>
               )}
@@ -675,6 +1148,12 @@ function QuizQuestionsPanel({ quiz, onBack }) {
                       {group.sectionName ?? 'No Section'}
                     </span>
                     <span className="text-xs text-apple-text-3">{group.questions.length} question{group.questions.length !== 1 ? 's' : ''}</span>
+                    {group.sectionId && (
+                      <>
+                        <button onClick={() => bulkReleaseSection(group.sectionId, true)} disabled={!!bulkRelease[group.sectionId]} className="text-xs font-semibold text-apple-green hover:underline disabled:opacity-50">Release All</button>
+                        <button onClick={() => bulkReleaseSection(group.sectionId, false)} disabled={!!bulkRelease[group.sectionId]} className="text-xs font-semibold text-apple-text-3 hover:text-apple-red hover:underline disabled:opacity-50">Hide All</button>
+                      </>
+                    )}
                     <div className="flex-1 h-px bg-apple-gray-2" />
                   </div>
                 )}
@@ -721,6 +1200,17 @@ function QuizzesTab() {
     setActivating(prev => ({ ...prev, [quiz.id]: false }));
   };
 
+  const toggleDisable = async (quiz) => {
+    try {
+      await fetch(`/api/admin/quizzes/${quiz.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isDisabled: !quiz.isDisabled }),
+      });
+      loadQuizzes();
+    } catch {}
+  };
+
   const deleteQuiz = async (quiz) => {
     if (!confirm(`Delete quiz "${quiz.title}" and ALL its questions? This cannot be undone.`)) return;
     setDeleting(prev => ({ ...prev, [quiz.id]: true }));
@@ -765,17 +1255,24 @@ function QuizzesTab() {
       ) : (
         <div className="space-y-3">
           {quizzes.map(quiz => (
-            <div key={quiz.id} className={`bg-white border rounded-apple-lg p-5 shadow-apple-sm ${quiz.isActive ? 'border-apple-green/50 bg-green-50/30' : 'border-apple-gray-2'}`}>
+            <div key={quiz.id} className={`bg-white border rounded-apple-lg p-5 shadow-apple-sm transition-all ${quiz.isDisabled ? 'border-apple-red/30 bg-red-50/20 opacity-75' : quiz.isActive ? 'border-apple-green/50 bg-green-50/30' : 'border-apple-gray-2'}`}>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <h3 className="text-base font-bold text-apple-text">{quiz.title}</h3>
-                    {quiz.isActive && <span className="text-xs font-semibold text-apple-green bg-green-100 border border-green-200 px-2 py-0.5 rounded-full">Active</span>}
+                    {quiz.isDisabled ? <span className="text-xs font-semibold text-apple-red bg-red-100 border border-red-200 px-2 py-0.5 rounded-full">Disabled</span> : quiz.isActive && <span className="text-xs font-semibold text-apple-green bg-green-100 border border-green-200 px-2 py-0.5 rounded-full">Active</span>}
                   </div>
                   {quiz.description && <p className="text-sm text-apple-text-2 mb-2">{quiz.description}</p>}
                   <p className="text-xs text-apple-text-3">{quiz.questionCount} question{quiz.questionCount !== 1 ? 's' : ''}</p>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+                  {/* Disable toggle */}
+                  <div className="flex items-center gap-2 border border-apple-gray-2 rounded-apple px-3 py-1.5">
+                    <span className="text-xs text-apple-text-2 font-medium">{quiz.isDisabled ? 'Disabled' : 'Enabled'}</span>
+                    <button onClick={() => toggleDisable(quiz)} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${quiz.isDisabled ? 'bg-apple-red' : 'bg-apple-green'}`}>
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${quiz.isDisabled ? 'translate-x-0.5' : 'translate-x-4'}`}/>
+                    </button>
+                  </div>
                   <button onClick={() => setSelectedQuiz(quiz)} className="flex items-center gap-1.5 text-sm font-semibold text-apple-text-2 bg-apple-gray border border-apple-gray-2 px-3 py-1.5 rounded-apple hover:border-apple-blue hover:text-apple-blue transition-colors">
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                     Manage
@@ -867,27 +1364,55 @@ function UploadTeamsModal({ onClose, onUploaded }) {
     setUploading(false);
   };
 
+  const downloadTemplate = () => {
+    const csv = `name,password\nTeamAlpha,pass123\nTeamBeta,securepass\n`;
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'teams_template.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <Modal title="Upload Teams CSV" onClose={onClose}>
+    <Modal title="Import Teams from CSV" onClose={onClose}>
       <div className="space-y-4">
         {error && <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-apple px-4 py-2.5">{error}</div>}
         {result ? (
-          <div className="bg-green-50 border border-green-200 rounded-apple p-4">
-            <p className="text-apple-green font-semibold text-sm">Imported {result.created} team{result.created !== 1 ? 's' : ''}.</p>
-            {result.errors?.length > 0 && result.errors.map((e, i) => <p key={i} className="text-xs text-apple-red mt-1">{e}</p>)}
-            <button onClick={onClose} className="mt-3 text-sm font-semibold text-apple-blue">Done</button>
+          <div className="flex flex-col items-center gap-4 py-6">
+            <div className="w-16 h-16 rounded-full bg-apple-green/15 flex items-center justify-center">
+              <svg className="w-8 h-8 text-apple-green" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <div className="text-center">
+              <p className="text-base font-bold text-apple-text">Import Complete</p>
+              <p className="text-sm text-apple-text-2 mt-1">{result.created} team{result.created !== 1 ? 's' : ''} imported</p>
+              {result.errors?.length > 0 && result.errors.map((e, i) => <p key={i} className="text-xs text-apple-red mt-1">{e}</p>)}
+            </div>
+            <button onClick={onClose} className="px-6 py-2 text-sm font-semibold text-white bg-apple-blue rounded-apple hover:bg-blue-600 transition-colors">Done</button>
           </div>
         ) : (
           <>
-            <div className="bg-apple-gray border border-apple-gray-2 rounded-apple p-4">
-              <p className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-2">CSV Format</p>
-              <pre className="text-xs text-apple-text font-mono">{`name,password\nTeamAlpha,pass123\nTeamBeta,securepass`}</pre>
-            </div>
-            <input type="file" accept=".csv,text/csv" onChange={e => setFile(e.target.files[0])} className="w-full text-sm text-apple-text-2 file:mr-3 file:py-2 file:px-4 file:rounded-apple file:border-0 file:text-sm file:font-semibold file:bg-apple-blue file:text-white hover:file:bg-blue-600 cursor-pointer" />
-            <div className="flex justify-end gap-3">
+            <details className="group">
+              <summary className="flex items-center justify-between cursor-pointer list-none bg-apple-gray/60 border border-apple-gray-2 rounded-apple px-4 py-3 hover:bg-apple-gray transition-colors">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-apple-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  <span className="text-xs font-semibold text-apple-text-2 uppercase tracking-wide">CSV Format Guide</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={e => { e.preventDefault(); downloadTemplate(); }} className="text-xs font-semibold text-apple-blue hover:underline">Download Template</button>
+                  <svg className="w-4 h-4 text-apple-text-3 group-open:rotate-180 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/></svg>
+                </div>
+              </summary>
+              <div className="mt-2 bg-[#1e1e1e] rounded-apple overflow-hidden">
+                <pre className="text-xs text-green-400 font-mono p-4 leading-relaxed">{`name,password\nTeamAlpha,pass123\nTeamBeta,securepass`}</pre>
+              </div>
+            </details>
+
+            <DropZone file={file} onFile={setFile} />
+
+            <div className="flex justify-end gap-3 pt-1">
               <button onClick={onClose} className="px-4 py-2 text-sm font-semibold text-apple-text-2 bg-apple-gray border border-apple-gray-3 rounded-apple hover:bg-apple-gray-2 transition-colors">Cancel</button>
               <button onClick={upload} disabled={!file || uploading} className="px-5 py-2 text-sm font-semibold text-white bg-apple-blue rounded-apple hover:bg-blue-600 transition-colors disabled:opacity-50 flex items-center gap-2">
-                {uploading && <Spinner size={4} />}{uploading ? 'Uploading…' : 'Upload'}
+                {uploading ? <><Spinner size={4} />Importing…</> : <><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>Import Teams</>}
               </button>
             </div>
           </>
@@ -980,8 +1505,13 @@ function TeamsTab() {
               {teams.map(team => (
                 <tr key={team.id} className="hover:bg-apple-gray/30 transition-colors">
                   <td className="px-5 py-3.5">
-                    <p className="text-sm font-semibold text-apple-text">{team.name}</p>
-                    <p className="text-xs text-apple-text-3 font-mono">#{team.id}</p>
+                    <div className="flex items-center gap-3">
+                      <Avatar name={team.name} size={8} />
+                      <div>
+                        <p className="text-sm font-semibold text-apple-text">{team.name}</p>
+                        <p className="text-xs text-apple-text-3 font-mono">#{team.id}</p>
+                      </div>
+                    </div>
                   </td>
                   <td className="px-5 py-3.5 text-right"><span className="text-sm font-bold font-mono text-apple-blue">{team.total_score || 0}</span></td>
                   <td className="px-5 py-3.5 text-right hidden sm:table-cell"><span className="text-sm text-apple-green font-semibold">{team.correct_count || 0}</span></td>
@@ -1327,15 +1857,47 @@ function LiveControlTab() {
    ════════════════════════════════════════ */
 export default function AdminPage() {
   const router = useRouter();
-  const [tab, setTab] = useState('scores');
+  const searchParams = useSearchParams();
+  const VALID_TABS = ['scores', 'quizzes', 'teams', 'settings', 'live'];
+  const tabParam = searchParams.get('tab');
+  const tab = VALID_TABS.includes(tabParam) ? tabParam : 'scores';
+  const setTab = (key) => router.replace(`/admin?tab=${key}`, { scroll: false });
   const [me, setMe] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
 
   useEffect(() => {
     fetch('/api/me').then(r => r.json()).then(d => {
-      if (d.type !== 'admin') { router.replace('/'); return; }
-      setMe(d);
-    }).catch(() => router.replace('/'));
+      if (d.type === 'admin') setMe(d);
+      setAuthChecked(true);
+    }).catch(() => setAuthChecked(true));
   }, []);
+
+  const handleAdminLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    setLoginLoading(true);
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamname: 'admin', password: loginPassword }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        // Re-fetch me to set admin state
+        const me2 = await fetch('/api/me').then(r => r.json());
+        setMe(me2);
+      } else {
+        setLoginError(data.error || 'Invalid password');
+      }
+    } catch {
+      setLoginError('Connection error');
+    }
+    setLoginLoading(false);
+  };
 
   const logout = async () => {
     await fetch('/api/logout', { method: 'POST' });
@@ -1349,6 +1911,63 @@ export default function AdminPage() {
     { key: 'settings', label: 'Settings', icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg> },
     { key: 'live', label: 'Live', icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.867v6.266a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg> },
   ];
+
+  // Show login form if auth check is done but not authenticated as admin
+  if (authChecked && !me) {
+    return (
+      <div className="min-h-screen bg-apple-gray flex items-center justify-center p-5">
+        <div className="w-full max-w-sm">
+          <div className="text-center mb-8">
+            <div className="w-14 h-14 bg-apple-blue rounded-apple-xl flex items-center justify-center mx-auto mb-4 shadow-apple-md">
+              <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+            </div>
+            <h1 className="text-2xl font-bold text-apple-text tracking-tight">Admin Portal</h1>
+            <p className="text-apple-text-2 text-sm mt-1">Quizzy</p>
+          </div>
+          <div className="bg-white rounded-apple-xl shadow-apple-md p-8">
+            <form onSubmit={handleAdminLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-apple-text-2 uppercase tracking-wide mb-1.5">Admin Password</label>
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={e => setLoginPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  autoFocus
+                  className="w-full px-4 py-2.5 bg-apple-gray border border-apple-gray-3 rounded-apple text-apple-text text-sm focus:outline-none focus:ring-2 focus:ring-apple-blue focus:border-transparent transition-all"
+                />
+              </div>
+              {loginError && (
+                <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-apple px-4 py-2.5">{loginError}</div>
+              )}
+              <button
+                type="submit"
+                disabled={loginLoading}
+                className="w-full bg-apple-blue text-white font-semibold py-3 rounded-apple text-sm hover:bg-blue-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loginLoading ? (
+                  <><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z"/></svg>Signing in…</>
+                ) : 'Sign In'}
+              </button>
+            </form>
+            <div className="mt-4 text-center">
+              <a href="/" className="text-xs text-apple-text-3 hover:text-apple-blue transition-colors">← Back to contestant login</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show spinner while auth check is in flight
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-apple-gray flex items-center justify-center">
+        <svg className="animate-spin h-8 w-8 text-apple-blue" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z"/></svg>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-apple-gray">

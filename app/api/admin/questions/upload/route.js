@@ -16,7 +16,11 @@ export async function POST(request) {
   if (!file || !(file instanceof File)) return NextResponse.json({ error: 'No file' }, { status: 400 });
 
   try {
-    const text = await file.text();
+    const rawText = await file.text();
+    // Strip any leading title rows before the actual header (which must contain "Question")
+    const lines = rawText.split(/\r?\n/);
+    const headerIndex = lines.findIndex(l => l.split(',').map(c => c.trim()).includes('Question'));
+    const text = headerIndex > 0 ? lines.slice(headerIndex).join('\n') : rawText;
     const records = parse(text, { columns: true, skip_empty_lines: true, trim: true });
     const created = [];
     const sectionCache = {};

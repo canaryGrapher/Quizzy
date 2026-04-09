@@ -16,6 +16,7 @@ export async function GET() {
     title: q.title,
     description: q.description,
     isActive: q.isActive,
+    isDisabled: q.isDisabled,
     pointsPerQuestion: q.pointsPerQuestion,
     timeLimitSeconds: q.timeLimitSeconds,
     createdAt: q.createdAt,

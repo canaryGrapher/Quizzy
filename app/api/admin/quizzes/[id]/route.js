@@ -6,7 +6,7 @@ export async function PUT(request, { params }) {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { title, description, pointsPerQuestion, timeLimitSeconds } = await request.json();
+  const { title, description, pointsPerQuestion, timeLimitSeconds, isDisabled } = await request.json();
   const data = {};
   if (title !== undefined) data.title = title.trim();
   if (description !== undefined) data.description = description?.trim() || null;
@@ -14,6 +14,7 @@ export async function PUT(request, { params }) {
   if (timeLimitSeconds !== undefined) {
     data.timeLimitSeconds = timeLimitSeconds ? parseInt(timeLimitSeconds) : null;
   }
+  if (isDisabled !== undefined) data.isDisabled = !!isDisabled;
 
   await prisma.quiz.update({ where: { id: parseInt(params.id) }, data });
   return NextResponse.json({ success: true });

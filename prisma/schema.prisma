@@ -12,6 +12,7 @@ model Quiz {
   title             String
   description       String?
   isActive          Boolean    @default(false) @map("is_active")
+  isDisabled        Boolean    @default(false) @map("is_disabled")
   pointsPerQuestion Int        @default(10) @map("points_per_question")
   timeLimitSeconds  Int?       @map("time_limit_seconds")
   createdAt         DateTime   @default(now()) @map("created_at")
@@ -22,13 +23,14 @@ model Quiz {
 }
 
 model Section {
-  id         Int        @id @default(autoincrement())
-  quizId     Int        @map("quiz_id")
-  quiz       Quiz       @relation(fields: [quizId], references: [id], onDelete: Cascade)
-  name       String
-  isEnabled  Boolean    @default(true) @map("is_enabled")
-  orderIndex Int        @default(0) @map("order_index")
-  questions  Question[]
+  id               Int        @id @default(autoincrement())
+  quizId           Int        @map("quiz_id")
+  quiz             Quiz       @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  name             String
+  isEnabled        Boolean    @default(true) @map("is_enabled")
+  orderIndex       Int        @default(0) @map("order_index")
+  timeLimitSeconds Int?       @map("time_limit_seconds")
+  questions        Question[]
 
   @@index([quizId])
   @@map("sections")
@@ -45,25 +47,48 @@ model Team {
   @@map("teams")
 }
 
+enum QuestionType {
+  MCQ
+  CODING
+}
+
 model Question {
-  id            Int       @id @default(autoincrement())
-  quizId        Int       @map("quiz_id")
-  quiz          Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
-  sectionId     Int?      @map("section_id")
-  section       Section?  @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  id            Int          @id @default(autoincrement())
+  quizId        Int          @map("quiz_id")
+  quiz          Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  sectionId     Int?         @map("section_id")
+  section       Section?     @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   title         String
   content       String
-  isMultiAnswer Boolean   @default(false) @map("is_multi_answer")
-  isReleased    Boolean   @default(false) @map("is_released")
-  releasedAt    DateTime? @map("released_at")
-  orderIndex    Int       @default(0) @map("order_index")
-  createdAt     DateTime  @default(now()) @map("created_at")
+  type          QuestionType @default(MCQ)
+  isMultiAnswer Boolean      @default(false) @map("is_multi_answer")
+  starterCode       String?      @map("starter_code")
+  allowedLanguages  String       @default("[\"javascript\",\"python\"]") @map("allowed_languages")
+  timeLimitSeconds  Int?         @map("time_limit_seconds")
+  isReleased    Boolean      @default(false) @map("is_released")
+  releasedAt    DateTime?    @map("released_at")
+  orderIndex    Int          @default(0) @map("order_index")
+  createdAt     DateTime     @default(now()) @map("created_at")
   options       Option[]
   answers       Answer[]
+  testCases     TestCase[]
 
   @@index([quizId, isReleased])
   @@index([sectionId])
   @@map("questions")
+}
+
+model TestCase {
+  id             Int      @id @default(autoincrement())
+  questionId     Int      @map("question_id")
+  question       Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  input          String   @default("")
+  expectedOutput String   @map("expected_output")
+  isHidden       Boolean  @default(false) @map("is_hidden")
+  orderIndex     Int      @default(0) @map("order_index")
+
+  @@index([questionId])
+  @@map("test_cases")
 }
 
 model Option {
@@ -84,11 +109,16 @@ model Answer {
   team            Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
   questionId      Int      @map("question_id")
   question        Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  selectedOptions String   @map("selected_options")
+  selectedOptions String   @default("[]") @map("selected_options")
   isCorrect       Boolean  @default(false) @map("is_correct")
   score           Int      @default(0)
   answerRank      Int?     @map("answer_rank")
   submittedAt     DateTime @default(now()) @map("submitted_at")
+  // Coding question fields
+  codeSubmission  String?  @map("code_submission")
+  language        String?
+  testsPassed     Int?     @map("tests_passed")
+  testsTotal      Int?     @map("tests_total")
 
   @@unique([teamId, questionId])
   @@index([questionId])

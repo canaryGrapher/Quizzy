@@ -155,6 +155,8 @@ export default function LiveScreen() {
             rank: data.rank,
             teamName: data.teamName,
             isCorrect: data.isCorrect,
+            testsPassed: data.testsPassed,
+            testsTotal: data.testsTotal,
             submittedAt: data.submittedAt,
           }].sort((a, b) => a.rank - b.rank);
           return {
@@ -194,12 +196,29 @@ export default function LiveScreen() {
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col overflow-hidden" style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif' }}>
       {/* Header */}
-      <header className="flex items-center justify-between px-8 py-3 border-b border-white/10 flex-shrink-0">
+      <header className="flex items-center justify-between px-8 py-3 border-b border-white/10 flex-shrink-0 relative" style={{ background: 'rgba(255,255,255,0.03)', backdropFilter: 'blur(20px)' }}>
         <div className="flex items-center gap-4">
           <span className="text-2xl font-black tracking-tight bg-gradient-to-r from-cyan-400 to-purple-500 bg-clip-text text-transparent">
             {activeQuizTitle || 'Quizzy Live'}
           </span>
         </div>
+
+        {/* Large center timer */}
+        {currentQuestion?.timeLimitSeconds && timeLeft !== null && (
+          <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center">
+            {(() => {
+              const pct = currentQuestion.timeLimitSeconds > 0 ? timeLeft / currentQuestion.timeLimitSeconds : 0;
+              const color = pct > 0.5 ? '#34C759' : pct > 0.25 ? '#FF9500' : '#FF3B30';
+              return (
+                <>
+                  <span className="text-5xl font-black tabular-nums" style={{ color, textShadow: pct < 0.25 ? `0 0 30px ${color}60` : 'none', transition: 'color 0.3s, text-shadow 0.3s' }}>{timeLeft}</span>
+                  <span className="text-xs font-semibold uppercase tracking-widest text-white/30 mt-0.5">{timeLeft === 0 ? "Time's Up" : 'seconds'}</span>
+                </>
+              );
+            })()}
+          </div>
+        )}
+
         <div className="flex items-center gap-4">
           {currentQuestion?.timeLimitSeconds && timeLeft !== null && (
             <CountdownRing timeLeft={timeLeft} totalTime={currentQuestion.timeLimitSeconds} />
@@ -231,8 +250,8 @@ export default function LiveScreen() {
                     {currentQuestion.sectionName}
                   </span>
                 )}
-                <span className="text-sm font-bold text-cyan-400 uppercase tracking-widest">
-                  {currentQuestion.isMultiAnswer ? 'Select all that apply' : 'Choose one answer'}
+                <span className={`text-sm font-bold uppercase tracking-widest ${currentQuestion.type === 'CODING' ? 'text-blue-400' : 'text-cyan-400'}`}>
+                  {currentQuestion.type === 'CODING' ? 'Coding Challenge' : currentQuestion.isMultiAnswer ? 'Select all that apply' : 'Choose one answer'}
                 </span>
               </div>
 
@@ -242,7 +261,8 @@ export default function LiveScreen() {
                 style={{ fontSize: 'clamp(1.1rem, 2.5vw, 1.6rem)' }}
               />
 
-              {currentQuestion.options?.length > 0 && (
+              {/* MCQ options */}
+              {currentQuestion.type !== 'CODING' && currentQuestion.options?.length > 0 && (
                 <div className="grid grid-cols-1 gap-3 max-w-3xl">
                   {currentQuestion.options.map((opt, i) => {
                     const isCorrect = showResults && resultStats?.correctOptionIds?.includes(opt.id);
@@ -288,7 +308,20 @@ export default function LiveScreen() {
                 </div>
               )}
 
-              {showResults && resultStats && (
+              {/* Coding results summary */}
+              {currentQuestion.type === 'CODING' && showResults && resultStats && (
+                <div className="max-w-3xl mt-4 space-y-2">
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div className="h-full bg-green-400 rounded-full transition-all duration-700"
+                        style={{ width: `${resultStats.totalAnswered > 0 ? Math.round((resultStats.solved / resultStats.totalAnswered) * 100) : 0}%` }} />
+                    </div>
+                    <span className="text-sm text-white/50 flex-shrink-0">{resultStats.solved}/{resultStats.totalAnswered} solved</span>
+                  </div>
+                </div>
+              )}
+
+              {showResults && resultStats && currentQuestion.type !== 'CODING' && (
                 <div className="mt-6 text-sm text-white/40">
                   {resultStats.totalAnswered} teams answered
                 </div>
@@ -328,6 +361,7 @@ export default function LiveScreen() {
                     {submittedList.map((team, i) => {
                       const isCorrect = submissionsMapRef.current[team.id];
                       const answer = fastestAnswers.find(a => a.teamName === team.name);
+                      const isCoding = currentQuestion?.type === 'CODING';
                       return (
                         <div
                           key={team.id}
@@ -338,9 +372,15 @@ export default function LiveScreen() {
                         >
                           {answer ? <RankBadge rank={answer.rank} /> : <span className="w-8 text-center text-white/20 text-sm">—</span>}
                           <p className="text-sm font-semibold text-white flex-1 truncate">{team.name}</p>
-                          <span className={`text-base flex-shrink-0 ${isCorrect ? 'text-green-400' : 'text-red-400'}`}>
-                            {isCorrect ? '✓' : '✗'}
-                          </span>
+                          {isCoding && answer?.testsTotal > 0 ? (
+                            <span className={`text-xs font-bold flex-shrink-0 ${isCorrect ? 'text-green-400' : 'text-white/40'}`}>
+                              {answer.testsPassed}/{answer.testsTotal}
+                            </span>
+                          ) : (
+                            <span className={`text-base flex-shrink-0 ${isCorrect ? 'text-green-400' : 'text-red-400'}`}>
+                              {isCorrect ? '✓' : '✗'}
+                            </span>
+                          )}
                         </div>
                       );
                     })}
